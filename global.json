@@ -4,6 +4,6 @@
     "rollForward": "latestPatch"
   },
   "msbuild-sdks": {
-    "Lucent.Lui.Sdk": "0.3.0-dev.11.1"
+    "Lucent.Lui.Sdk": "0.3.0-dev.12.1"
   }
 }
