@@ -24,7 +24,7 @@ public sealed class NoteWorkspace : IAsyncDisposable
         Capture = new(owner, "capture", name: "capture");
         Title = new(owner, "empty", name: "title");
         Url = new(owner, "empty", name: "url");
-        Body = new(owner, "empty", name: "body");
+        Body = new(owner, "empty", name: "body", multiline: true);
         Constraints = new(owner);
         Items = owner.Signal<IReadOnlyList<NoteRecord>>([], "notes");
         Selected = owner.Signal<NoteRecord?>(null, "selected-note");

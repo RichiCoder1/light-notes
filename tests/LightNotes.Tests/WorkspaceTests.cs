@@ -19,7 +19,7 @@ public sealed class WorkspaceTests
         var id = model.Selected.Value!.Id;
         Assert.AreEqual(1, model.Items.Value.Count);
         model.Title.Text = "A revised thought";
-        model.Body.Text = "This is the latest accepted draft.";
+        model.Body.Text = "This is the latest accepted draft.\nA second line with a tab:\tkept.";
         Assert.IsTrue(model.IsDirty);
         fixture.Execute(model.SaveCommand);
         Assert.IsFalse(model.IsDirty);
@@ -35,7 +35,10 @@ public sealed class WorkspaceTests
         var records = store.ListAsync(includeArchived: true);
         fixture.Pump(records);
         Assert.AreEqual("A revised thought", records.Result.Single().Title);
-        Assert.AreEqual("This is the latest accepted draft.", records.Result.Single().Body);
+        Assert.AreEqual(
+            "This is the latest accepted draft.\nA second line with a tab:\tkept.",
+            records.Result.Single().Body
+        );
         Assert.IsTrue(records.Result.Single().IsArchived);
         fixture.Pump(store.DisposeAsync().AsTask());
     }

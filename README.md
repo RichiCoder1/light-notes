@@ -2,7 +2,7 @@
 
 A small Windows desktop home for links and plain-text notes, built with Lucent and authored in `.lui`.
 
-Capture a link or thought, select a saved item, edit its title, URL and note, then save or archive it. Records live in a local SQLite database. This first persistence slice uses single-line note editing; the reusable multiline editor and complete daily-use shell are the next work.
+Capture a link or thought, select a saved item, edit its title, URL and note, then save or archive it. Records live in a local SQLite database. The note body supports multiple lines, wrapping, selection, clipboard, undo/redo and scrolling through Lucent’s reusable TextArea. The complete responsive daily-use shell is the next work.
 
 ## Run locally
 

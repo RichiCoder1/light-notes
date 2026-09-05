@@ -131,7 +131,7 @@ internal component AppView(NoteWorkspace model) {
                                 <Text style={FieldLabelStyle}>URL (optional)</Text>
                                 <TextField session={model.Url} label="URL" style={Style.Empty.Height(40f).Padding(Insets.Symmetric(10, 8)).Background(Color.Parse("#eef2f4")).Enabled(() => model.CanEdit)} name="notes.url" />
                                 <Text style={FieldLabelStyle}>Note</Text>
-                                <TextField session={model.Body} label="Body" style={Style.Empty.Height(40f).Padding(Insets.Symmetric(10, 8)).Background(Color.Parse("#eef2f4")).Enabled(() => model.CanEdit)} name="notes.body" />
+                                <TextArea session={model.Body} label="Body" style={Style.Empty.MainGrow(1f).Height(180f).Padding(Insets.Symmetric(10, 8)).Background(Color.Parse("#eef2f4")).Enabled(() => model.CanEdit)} name="notes.body" />
                                 <Row style={EditorActionsStyle} name="notes.editor-actions">
                                     <Button onInvoke={() => model.SaveCommand.TryExecute()} style={QuietActionStyle.Enabled(() => model.SaveCommand.IsEnabled)} name="notes.save">Save</Button>
                                     if (model.ShowArchived.Value) {
