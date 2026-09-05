@@ -1,0 +1,19 @@
+name: Build
+on: [push, pull_request, workflow_dispatch]
+permissions:
+  contents: read
+  packages: read
+jobs:
+  build:
+    runs-on: windows-2025
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6
+        with:
+          global-json-file: global.json
+      - name: Restore and publish Light Notes
+        shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: ./tools/Build.ps1 -Publish

@@ -1,0 +1,17 @@
+namespace LightNotes;
+style Page {
+    Padding: Insets.Uniform(32);
+    Spacing: 16;
+}
+
+style Heading {
+    FontSize: 28;
+}
+
+internal component AppView() {
+    <Column style={Page}>
+        <Text style={Heading}>Light Notes</Text>
+        <Text>A little space for links and thoughts.</Text>
+        <Text>The inbox is taking shape.</Text>
+    </Column>
+}
