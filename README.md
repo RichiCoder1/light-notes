@@ -2,7 +2,7 @@
 
 A small Windows desktop home for links and plain-text notes, built with Lucent and authored in `.lui`.
 
-This is the initial independent application setup. It opens and closes a native window through Lucent's Microsoft hosting integration. Capture, storage, the responsive inbox, and multiline editing are still being built; this version does not save notes.
+Capture a link or thought, select a saved item, edit its title, URL and note, then save or archive it. Records live in a local SQLite database. This first persistence slice uses single-line note editing; the reusable multiline editor and complete daily-use shell are the next work.
 
 ## Run locally
 
@@ -30,3 +30,33 @@ For framework work, pack a unique local version using Lucent's [package instruct
 UI belongs in `src/LightNotes/*.lui`; C# supplies the entry point, models and services. No editor extension is required to build. For VS Code language support, follow the [pinned tooling contract](https://github.com/RichiCoder1/lucent/blob/b9d6cbecc9ff410c96451a0e50b68f8345a3382a/docs/LUI-SDK-TOOLING.md); the language server is a separate development tool.
 
 The owner and coding agents on the owner's machine are the primary development audience. Cross-repository work is tracked initially in [Lucent #62](https://github.com/RichiCoder1/lucent/issues/62) and [the app plan](https://github.com/RichiCoder1/lucent/issues/63). MIT licensed; see [CREDITS](CREDITS.md) for dependency provenance.
+
+## Local data and recovery
+
+Data lives in `%LOCALAPPDATA%/LightNotes/notes.db`. Set `LIGHT_NOTES_DATA_DIRECTORY` to use a separate directory for development or automation. Tests always use temporary databases. Never commit a personal database or export.
+
+Ctrl+N captures the current capture field; Ctrl+S saves the selected draft. Selecting another item or closing saves the current draft first. A failed save keeps the draft and window available for retry. A successful save means the database transaction committed; it does not imply off-device backup or protection against disk failure.
+
+The Backup button creates a consistent SQLite copy under the data directory's `Backups` folder. For a portable JSON export or an explicitly located backup, close the app and run:
+
+```powershell
+./artifacts/publish/LightNotes.exe --export C:/Backups/light-notes.json
+./artifacts/publish/LightNotes.exe --backup C:/Backups/light-notes.db
+```
+
+Use a new destination filename. Schema migration, format and recovery details are documented in [STORAGE.md](docs/STORAGE.md). Keep the original database and its associated files intact when recovering; restore a backup into a separate data directory first. There is no automatic cloud sync or import merge.
+
+## Tests
+
+Run `./tools/Test.ps1` for temporary-database and workspace contracts. After changing package dependencies, use `-UpdateLock` once, then commit the lock files. `./tools/Build.ps1 -Publish` produces the NativeAOT application. Published desktop interaction tests run separately in an interactive Windows session.
+
+### Optional published desktop test
+
+The published persistence test is opt-in and is not included in `./tools/Test.ps1`. After publishing, run the following from the repository root in an interactive Windows session:
+
+```powershell
+$env:LIGHT_NOTES_PUBLISHED = (Resolve-Path ./artifacts/publish/LightNotes.exe).Path
+dotnet test ./tests/LightNotes.Desktop.Tests/LightNotes.Desktop.Tests.csproj -c Release --no-restore
+```
+
+The test writes its review screenshot to `artifacts/desktop/light-notes-persistence.png`; set `LIGHT_NOTES_DESKTOP_ARTIFACTS` to override that location.

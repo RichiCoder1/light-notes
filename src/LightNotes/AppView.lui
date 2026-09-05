@@ -1,17 +1,158 @@
 namespace LightNotes;
-style Page {
-    Padding: Insets.Uniform(32);
+style ShellStyle {
+    Background: Color.Parse("#f7f5f0");
+    TextColor: Color.Parse("#1d2a35");
+    FontFamily: "Segoe UI";
+    FontSize: 14;
+    Padding: Insets.Uniform(20);
+    Spacing: 12;
+    MainGrow: 1;
+    Clip: true;
+}
+
+style CaptureBarStyle {
+    Background: Color.Parse("#f7f5f0");
+    Axis: LayoutAxis.Row;
+    Spacing: 8;
+    Height: 40;
+}
+
+style QuietActionStyle {
+    Height: 32;
+    Padding: Insets.Symmetric(10, 6);
+}
+
+style StatusStyle {
+    Background: Color.Parse("#f7f5f0");
+    Height: 22;
+    TextColor: Color.Parse("#5d6b73");
+}
+
+style MainContentStyle {
+    Background: Color.Parse("#f7f5f0");
+    Axis: LayoutAxis.Row;
     Spacing: 16;
+    MainGrow: 1;
+    Clip: true;
 }
 
-style Heading {
-    FontSize: 28;
+style CollectionPaneStyle {
+    Background: Color.Parse("#f7f5f0");
+    Width: 286;
+    Spacing: 8;
+    Clip: true;
 }
 
-internal component AppView() {
-    <Column style={Page}>
-        <Text style={Heading}>Light Notes</Text>
-        <Text>A little space for links and thoughts.</Text>
-        <Text>The inbox is taking shape.</Text>
-    </Column>
+style PaneHeaderStyle {
+    Background: Color.Parse("#f7f5f0");
+    Axis: LayoutAxis.Row;
+    Spacing: 8;
+    Height: 32;
+}
+
+style PaneTitleStyle {
+    MainGrow: 1;
+    FontSize: 18;
+}
+
+style ListStyle {
+    MainGrow: 1;
+    Height: 120;
+    Clip: true;
+}
+
+style EditorPaneStyle {
+    Padding: Insets.Uniform(16);
+    MainGrow: 1;
+    Spacing: 8;
+    Clip: true;
+}
+
+style EditorContentStyle {
+    MainGrow: 1;
+    Spacing: 8;
+    Clip: true;
+}
+
+style EditorActionsStyle {
+    Axis: LayoutAxis.Row;
+    Spacing: 8;
+    Height: 32;
+}
+
+style EmptyEditorStyle {
+    MainGrow: 1;
+    Spacing: 8;
+}
+
+style EditorHeadingStyle {
+    FontSize: 18;
+    Height: 28;
+}
+
+style FieldLabelStyle {
+    FontSize: 12;
+    TextColor: Color.Parse("#59666e");
+}
+
+internal component AppView(NoteWorkspace model) {
+    <CommandScope bindings={model.Bindings}>
+        <ResponsiveContainer constraints={model.Constraints}>
+            <Column style={ShellStyle}>
+                <Row style={CaptureBarStyle} name="notes.capture-bar">
+                    <TextField session={model.Capture} label="Capture a URL or thought" style={Style.Empty.Height(40f).Padding(Insets.Symmetric(10, 8)).Background(Color.Parse("#eef2f4")).MainGrow(1f).Enabled(() => model.CanEdit)} name="notes.capture" />
+                    <Button onInvoke={() => model.CaptureCommand.TryExecute()} style={Style.Empty.Width(84f).Height(40f).Padding(Insets.Symmetric(10, 8)).Background(Color.Parse("#245a73")).TextColor(Color.Parse("#ffffff")).Enabled(() => model.CaptureCommand.IsEnabled)} name="notes.capture-action">Capture</Button>
+                </Row>
+                <Row style={StatusStyle} name="notes.status-row">
+                    <Status content={() => model.StatusText} name="notes.status" />
+                    if (model.RetryCommand.IsEnabled) {
+                        <Button onInvoke={() => model.RetryCommand.TryExecute()} style={QuietActionStyle} name="notes.retry">Retry</Button>
+                    }
+                </Row>
+                <Row style={MainContentStyle} name="notes.content">
+                    <Column style={CollectionPaneStyle} name="notes.collection">
+                        <Row style={PaneHeaderStyle} name="notes.collection-header">
+                            <Text content={() => model.ShowArchived.Value ? "Archive" : "Inbox"} style={PaneTitleStyle} name="notes.collection-title" />
+                            if (model.ShowArchived.Value) {
+                                <Button onInvoke={() => model.ToggleArchiveCommand.TryExecute()} style={QuietActionStyle.Enabled(() => model.ToggleArchiveCommand.IsEnabled)} name="notes.collection-inbox">Inbox</Button>
+                            }
+                            if (!model.ShowArchived.Value) {
+                                <Button onInvoke={() => model.ToggleArchiveCommand.TryExecute()} style={QuietActionStyle.Enabled(() => model.ToggleArchiveCommand.IsEnabled)} name="notes.collection-archive">Archive</Button>
+                            }
+                        </Row>
+                        <VirtualizedList source={() => model.Items.Value} key={item => item.Id} row={item => NoteRow(model, () => item.Value)} rowHeight={() => 58f} label="Saved notes" style={ListStyle} name="notes.list" />
+                    </Column>
+                    <Column style={EditorPaneStyle} name="notes.editor">
+                        if (model.Selected.Value is not null) {
+                            <Column style={EditorContentStyle} name="notes.editor-content">
+                                <Text content={() => model.ShowArchived.Value ? "Archived note" : "Selected note"} style={EditorHeadingStyle} name="notes.editor-title" />
+                                <Text style={FieldLabelStyle}>Title</Text>
+                                <TextField session={model.Title} label="Title" style={Style.Empty.Height(40f).Padding(Insets.Symmetric(10, 8)).Background(Color.Parse("#eef2f4")).Enabled(() => model.CanEdit)} name="notes.title" />
+                                <Text style={FieldLabelStyle}>URL (optional)</Text>
+                                <TextField session={model.Url} label="URL" style={Style.Empty.Height(40f).Padding(Insets.Symmetric(10, 8)).Background(Color.Parse("#eef2f4")).Enabled(() => model.CanEdit)} name="notes.url" />
+                                <Text style={FieldLabelStyle}>Note</Text>
+                                <TextField session={model.Body} label="Body" style={Style.Empty.Height(40f).Padding(Insets.Symmetric(10, 8)).Background(Color.Parse("#eef2f4")).Enabled(() => model.CanEdit)} name="notes.body" />
+                                <Row style={EditorActionsStyle} name="notes.editor-actions">
+                                    <Button onInvoke={() => model.SaveCommand.TryExecute()} style={QuietActionStyle.Enabled(() => model.SaveCommand.IsEnabled)} name="notes.save">Save</Button>
+                                    if (model.ShowArchived.Value) {
+                                        <Button onInvoke={() => model.ArchiveCommand.TryExecute()} style={QuietActionStyle.Enabled(() => model.ArchiveCommand.IsEnabled)} name="notes.restore">Restore</Button>
+                                    }
+                                    if (!model.ShowArchived.Value) {
+                                        <Button onInvoke={() => model.ArchiveCommand.TryExecute()} style={QuietActionStyle.Enabled(() => model.ArchiveCommand.IsEnabled)} name="notes.archive">Archive</Button>
+                                    }
+                                    <Button onInvoke={() => model.BackupCommand.TryExecute()} style={QuietActionStyle.Enabled(() => model.BackupCommand.IsEnabled)} name="notes.backup">Backup</Button>
+                                </Row>
+                            </Column>
+                        }
+                        if (model.Selected.Value is null) {
+                            <Column style={EmptyEditorStyle} name="notes.editor-empty">
+                                <Text style={EditorHeadingStyle}>Select an item</Text>
+                                <Text>Capture a URL or thought to start a note.</Text>
+                            </Column>
+                        }
+                    </Column>
+                </Row>
+            </Column>
+        </ResponsiveContainer>
+    </CommandScope>
 }

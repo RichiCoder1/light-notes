@@ -1,0 +1,12 @@
+Microsoft.Data.Sqlite 10.0.11
+Copyright Microsoft Corporation. All rights reserved.
+Copyright (c) .NET Foundation and Contributors. MIT License.
+See Microsoft.Data.Sqlite-LICENSE.txt.
+
+SQLitePCLRaw 2.1.12 (core, provider, bundle, native packaging)
+Copyright 2014-2024 SourceGear, LLC. Apache License 2.0.
+See SQLitePCLRaw-LICENSE.txt.
+https://github.com/ericsink/SQLitePCL.raw
+
+SQLite is in the public domain.
+https://www.sqlite.org/copyright.html

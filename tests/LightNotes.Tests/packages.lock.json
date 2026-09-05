@@ -2,39 +2,48 @@
   "version": 1,
   "dependencies": {
     "net10.0-windows10.0.26100": {
-      "Lucent.Hosting": {
+      "Microsoft.Testing.Extensions.CodeCoverage": {
         "type": "Direct",
-        "requested": "[0.3.0-dev.14.1, 0.3.0-dev.14.1]",
-        "resolved": "0.3.0-dev.14.1",
-        "contentHash": "YPd9frwKtPQyk6ZR5jTSpW/wpPPFPewfm0lgANXVnHCiCcX446rtKx50boG2a+cCDhXXqVoYZVLh759zGN6ESg==",
+        "requested": "[18.11.0, )",
+        "resolved": "18.11.0",
+        "contentHash": "Kqzpt/I7tmXn5qudrmMj4GMGNuFOtN591KqSOTB+rPfWXS/l3I9o742YKiqagQuXzmydX+6BiI9yINZu05vmxA==",
         "dependencies": {
-          "Lucent.Core": "0.3.0-dev.14.1",
-          "Microsoft.Extensions.Hosting": "10.0.11"
+          "Microsoft.DiaSymReader": "2.2.10",
+          "Microsoft.Extensions.DependencyModel": "10.0.10",
+          "Microsoft.Testing.Platform": "2.4.0"
         }
       },
-      "Lucent.Platform.Windows": {
+      "Microsoft.Testing.Extensions.TrxReport": {
         "type": "Direct",
-        "requested": "[0.3.0-dev.14.1, 0.3.0-dev.14.1]",
-        "resolved": "0.3.0-dev.14.1",
-        "contentHash": "MjDvVbmqjVlkCfA8Pl39SRuzofzjBE6WCruSkKUJHCdN27wj7O7iPwzOWbMUlAxoPtNfXdwHUS6b0hDFpGP6Mw==",
+        "requested": "[2.4.0, )",
+        "resolved": "2.4.0",
+        "contentHash": "WkOaIp/ivwcaF34rmUAIjafnWJ/chI/2hvH/wLQlLXKNDDvaRYvjkxWC7l0+Ib+C4dGrylUonM4kHwJujlkVKw==",
         "dependencies": {
-          "Lucent.Core": "0.3.0-dev.14.1",
-          "Lucent.Renderer.Skia": "0.3.0-dev.14.1",
-          "SDL3-CS": "3.4.14.1",
-          "SDL3-CS.Windows": "3.4.14.1"
+          "Microsoft.Testing.Extensions.TrxReport.Abstractions": "2.4.0",
+          "Microsoft.Testing.Platform": "[2.4.0, 3.0.0)"
         }
       },
-      "Microsoft.DotNet.ILCompiler": {
+      "MSTest.TestAdapter": {
         "type": "Direct",
-        "requested": "[10.0.11, )",
-        "resolved": "10.0.11",
-        "contentHash": "yloFUsIQOzspIsn2cDHrbgikKaWHAZspzj0EWxnWJJpFC89IBW64OXgCECsrrnzGWQvy1iLX9r5/R4zBf7Am3g=="
+        "requested": "[4.4.0, )",
+        "resolved": "4.4.0",
+        "contentHash": "xZdlCr2r/6XFOo67jcemJsfm46tTgXdqtnISFIuDUAJf5Yxk07XpTC9eMUErLdlYD8QM9zw07eOPre7+nTayUg==",
+        "dependencies": {
+          "MSTest.TestFramework": "4.4.0",
+          "Microsoft.TestPlatform.ObjectModel": "18.9.0",
+          "Microsoft.Testing.Extensions.Telemetry": "2.4.0",
+          "Microsoft.Testing.Extensions.TrxReport.Abstractions": "2.4.0",
+          "Microsoft.Testing.Platform.MSBuild": "2.4.0"
+        }
       },
-      "Microsoft.NET.ILLink.Tasks": {
+      "MSTest.TestFramework": {
         "type": "Direct",
-        "requested": "[10.0.11, )",
-        "resolved": "10.0.11",
-        "contentHash": "IBf7lbovvjGWVWXZX5cJ/cO0WXbId0Zq4BuSeT94mGZuOAP66oMeH9PTBZ9Jpp3Jb6jtK0qm/NyUbPRo1gC/wQ=="
+        "requested": "[4.4.0, )",
+        "resolved": "4.4.0",
+        "contentHash": "sfJzj3ntdU/GahJd2n+WQLgKqbV0RRMJVXtjRwRQLhblevlzLSDAOocOKANhfMaCEQ5dMt6348ztbVq/Ap60xA==",
+        "dependencies": {
+          "MSTest.Analyzers": "4.4.0"
+        }
       },
       "HarfBuzzSharp": {
         "type": "Transitive",
@@ -54,6 +63,26 @@
         "resolved": "0.3.0-dev.14.1",
         "contentHash": "n7q0hJ+FFsS4b3KnKGmzOtYiZJsVhOVq4hpVhusjfKDE0dg6OkvqFaSmClX8tT7G21XhXpPnpw674Y0ArsIlIA=="
       },
+      "Lucent.Hosting": {
+        "type": "Transitive",
+        "resolved": "0.3.0-dev.14.1",
+        "contentHash": "YPd9frwKtPQyk6ZR5jTSpW/wpPPFPewfm0lgANXVnHCiCcX446rtKx50boG2a+cCDhXXqVoYZVLh759zGN6ESg==",
+        "dependencies": {
+          "Lucent.Core": "0.3.0-dev.14.1",
+          "Microsoft.Extensions.Hosting": "10.0.11"
+        }
+      },
+      "Lucent.Platform.Windows": {
+        "type": "Transitive",
+        "resolved": "0.3.0-dev.14.1",
+        "contentHash": "MjDvVbmqjVlkCfA8Pl39SRuzofzjBE6WCruSkKUJHCdN27wj7O7iPwzOWbMUlAxoPtNfXdwHUS6b0hDFpGP6Mw==",
+        "dependencies": {
+          "Lucent.Core": "0.3.0-dev.14.1",
+          "Lucent.Renderer.Skia": "0.3.0-dev.14.1",
+          "SDL3-CS": "3.4.14.1",
+          "SDL3-CS.Windows": "3.4.14.1"
+        }
+      },
       "Lucent.Renderer.Skia": {
         "type": "Transitive",
         "resolved": "0.3.0-dev.14.1",
@@ -63,6 +92,11 @@
           "SkiaSharp": "4.151.1",
           "SkiaSharp.HarfBuzz": "4.151.1"
         }
+      },
+      "Microsoft.ApplicationInsights": {
+        "type": "Transitive",
+        "resolved": "2.23.0",
+        "contentHash": "nWArUZTdU7iqZLycLKWe0TDms48KKGE6pONH2terYNa8REXiqixrMOkf1sk5DHGMaUTqONU2YkS4SAXBhLStgw=="
       },
       "Microsoft.Data.Sqlite": {
         "type": "Transitive",
@@ -81,6 +115,11 @@
         "dependencies": {
           "SQLitePCLRaw.core": "2.1.12"
         }
+      },
+      "Microsoft.DiaSymReader": {
+        "type": "Transitive",
+        "resolved": "2.2.10",
+        "contentHash": "zmGsm6b2y3STDa/Of7rdkkfTDV8VuGB8aCqIkLoJIQh5tL78K3zJ8OUyFKnfsaORXmGr9iOKwDkZfUjeXi+CwA=="
       },
       "Microsoft.Extensions.Configuration": {
         "type": "Transitive",
@@ -172,6 +211,11 @@
         "type": "Transitive",
         "resolved": "10.0.11",
         "contentHash": "/a1aJz4m7ylhEDf25ugQChLQoN5XwoGjWw/BoR/ZWWKsO1v4DdJElS1uyngahz4B/eOzjFk1KNTkarRLE5wsIg=="
+      },
+      "Microsoft.Extensions.DependencyModel": {
+        "type": "Transitive",
+        "resolved": "10.0.10",
+        "contentHash": "rfZA1RjR021RPqSmIPovfz2aOd79TGqJ9BengbjnzIISOVwjLmuSDnhCMmiY/1c6iYvGolQ1iNGzkav0u11XEA=="
       },
       "Microsoft.Extensions.Diagnostics": {
         "type": "Transitive",
@@ -361,6 +405,46 @@
         "resolved": "10.0.11",
         "contentHash": "SXcz+kF+4Oo9b1+55zntpJFYfwb1jw66ioxptyNOOTDc8g2FHnBFWjZpsWfCvZIhzr0x+4e2trVTs4OKwQfBtw=="
       },
+      "Microsoft.Testing.Extensions.Telemetry": {
+        "type": "Transitive",
+        "resolved": "2.4.0",
+        "contentHash": "JeP1RFqBa11fWmBk8xEfZcMKr4rxWSyI6OZ+659V069CaMkTEOQBW2UdSSeNz3absOsygcn7JJkzerC4LGnZ9w==",
+        "dependencies": {
+          "Microsoft.ApplicationInsights": "2.23.0",
+          "Microsoft.Testing.Platform": "[2.4.0, 3.0.0)"
+        }
+      },
+      "Microsoft.Testing.Extensions.TrxReport.Abstractions": {
+        "type": "Transitive",
+        "resolved": "2.4.0",
+        "contentHash": "uRb+4qM42dFDg4kWJZ2kFEcwESNVCRZJjItp5vETorN3rSJGysP617LqYirOcrCYmxg+obPreHMM5JcsNDKtBw==",
+        "dependencies": {
+          "Microsoft.Testing.Platform": "[2.4.0, 3.0.0)"
+        }
+      },
+      "Microsoft.Testing.Platform": {
+        "type": "Transitive",
+        "resolved": "2.4.0",
+        "contentHash": "dp1N3P1ujb0ztwFgqz2o/ItEvq+pm19/AiA+Xq7Zpcy7oPMcxDBZLYGtf0LlU1MveEBJuKVjZhI+LnkfcH/0jQ=="
+      },
+      "Microsoft.Testing.Platform.MSBuild": {
+        "type": "Transitive",
+        "resolved": "2.4.0",
+        "contentHash": "qr5M6h16YHMJLFDcWELFVMMpGte2BUmveBZKT5YoBV+bmuJRPu9bv/Zqke4yQuOEKRNxoAETrG5jr+/6Rnr3Hg==",
+        "dependencies": {
+          "Microsoft.Testing.Platform": "[2.4.0, 3.0.0)"
+        }
+      },
+      "Microsoft.TestPlatform.ObjectModel": {
+        "type": "Transitive",
+        "resolved": "18.9.0",
+        "contentHash": "Fz/qXC52VXXopzHj7v2reCKcCqSxkTDCkEDfkNAH0vni/7qK/KLMiEYtRmnUanxO2F2g2zZZ60qCpxF0AF7URA=="
+      },
+      "MSTest.Analyzers": {
+        "type": "Transitive",
+        "resolved": "4.4.0",
+        "contentHash": "8g2KL2LjsXXVywvQb0uWQBANOONVnRf6cTSbON9ar6gIw08oSBY7Z3PJlC8sHbqOVvCr7srrcWiKzb12SUoV2w=="
+      },
       "SDL3-CS": {
         "type": "Transitive",
         "resolved": "3.4.14.1",
@@ -425,6 +509,14 @@
         "resolved": "10.0.11",
         "contentHash": "QTXEoQBzz00SFWbo7nAg1Ogd4f99lwqcO9uAJ7MYSLEUR28f6As32QktrqG2Fr9cfAfd1GjLyGYspE7Ipj7P6w=="
       },
+      "lightnotes": {
+        "type": "Project",
+        "dependencies": {
+          "LightNotes.Storage": "[1.0.0, )",
+          "Lucent.Hosting": "[0.3.0-dev.14.1, 0.3.0-dev.14.1]",
+          "Lucent.Platform.Windows": "[0.3.0-dev.14.1, 0.3.0-dev.14.1]"
+        }
+      },
       "lightnotes.storage": {
         "type": "Project",
         "dependencies": {
@@ -433,9 +525,24 @@
       }
     },
     "net10.0-windows10.0.26100/win-x64": {
-      "Lucent.Platform.Windows": {
+      "Microsoft.Testing.Extensions.CodeCoverage": {
         "type": "Direct",
-        "requested": "[0.3.0-dev.14.1, 0.3.0-dev.14.1]",
+        "requested": "[18.11.0, )",
+        "resolved": "18.11.0",
+        "contentHash": "Kqzpt/I7tmXn5qudrmMj4GMGNuFOtN591KqSOTB+rPfWXS/l3I9o742YKiqagQuXzmydX+6BiI9yINZu05vmxA==",
+        "dependencies": {
+          "Microsoft.DiaSymReader": "2.2.10",
+          "Microsoft.Extensions.DependencyModel": "10.0.10",
+          "Microsoft.Testing.Platform": "2.4.0"
+        }
+      },
+      "HarfBuzzSharp.NativeAssets.Win32": {
+        "type": "Transitive",
+        "resolved": "14.2.1.1",
+        "contentHash": "doOYYTksh3+VDcuXMHFZaYkA1gs0JFfvUyBMH5fhLUA20FPNfDL5gciiyXlzZ/HNR/J3u2C27e6tvycbk+2MUQ=="
+      },
+      "Lucent.Platform.Windows": {
+        "type": "Transitive",
         "resolved": "0.3.0-dev.14.1",
         "contentHash": "MjDvVbmqjVlkCfA8Pl39SRuzofzjBE6WCruSkKUJHCdN27wj7O7iPwzOWbMUlAxoPtNfXdwHUS6b0hDFpGP6Mw==",
         "dependencies": {
@@ -444,25 +551,6 @@
           "SDL3-CS": "3.4.14.1",
           "SDL3-CS.Windows": "3.4.14.1"
         }
-      },
-      "Microsoft.DotNet.ILCompiler": {
-        "type": "Direct",
-        "requested": "[10.0.11, )",
-        "resolved": "10.0.11",
-        "contentHash": "yloFUsIQOzspIsn2cDHrbgikKaWHAZspzj0EWxnWJJpFC89IBW64OXgCECsrrnzGWQvy1iLX9r5/R4zBf7Am3g==",
-        "dependencies": {
-          "runtime.win-x64.Microsoft.DotNet.ILCompiler": "10.0.11"
-        }
-      },
-      "HarfBuzzSharp.NativeAssets.Win32": {
-        "type": "Transitive",
-        "resolved": "14.2.1.1",
-        "contentHash": "doOYYTksh3+VDcuXMHFZaYkA1gs0JFfvUyBMH5fhLUA20FPNfDL5gciiyXlzZ/HNR/J3u2C27e6tvycbk+2MUQ=="
-      },
-      "runtime.win-x64.Microsoft.DotNet.ILCompiler": {
-        "type": "Transitive",
-        "resolved": "10.0.11",
-        "contentHash": "D6ZKMo3NeTnos7l5S8bMmiPm4LK+y15Q/uduyPw7FX+xKbeWVWdwlcZGkLLPjLvW4ZO6o3ACanq5HsSXJgrt0g=="
       },
       "SDL3-CS.Windows": {
         "type": "Transitive",

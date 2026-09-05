@@ -1,0 +1,17 @@
+using LightNotes.Storage;
+namespace LightNotes;
+style NoteRowStyle {
+    Height: 58;
+    Padding: Insets.Symmetric(10, 7);
+    Background: Color.Parse("#ffffff");
+    when Selected {
+        Background: Color.Parse("#dbeaf0");
+    }
+    when FocusVisible {
+        Background: Color.Parse("#c4dce8");
+    }
+}
+
+public component NoteRow(NoteWorkspace model, Func<NoteRecord> item) {
+    <Selectable content={() => item().Title + " · " + (item().Kind == NoteKind.Link ? "Link" : "Note")} selected={() => model.Selected.Value != null && model.Selected.Value.Id == item().Id} onSelect={() => model.Select(item().Id)} style={NoteRowStyle} name="notes.row" />
+}
