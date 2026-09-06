@@ -25,5 +25,11 @@ style NoteRowStyle {
 }
 
 public component NoteRow(NoteWorkspace model, Func<NoteRecord> item) {
-    <Selectable content={() => NotePresentation.RowLabel(item())} selected={() => model.Selected.Value != null && model.Selected.Value.Id == item().Id} onSelect={() => model.Select(item().Id)} style={NoteRowStyle} name="notes.row" />
+    <Selectable
+        selected={() => model.Selected.Value != null && model.Selected.Value.Id == item().Id}
+        onSelect={() => model.Select(item().Id)}
+        style={NoteRowStyle}
+        name="notes.row">
+        {() => NotePresentation.RowLabel(item())}
+    </Selectable>
 }

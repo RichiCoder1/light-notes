@@ -1,4 +1,5 @@
 namespace LightNotes;
+
 style LoadingPanelStyle {
     MainGrow: 1;
     Padding: Insets.Symmetric(8, 30);

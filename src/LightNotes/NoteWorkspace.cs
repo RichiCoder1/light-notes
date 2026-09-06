@@ -32,7 +32,6 @@ public sealed class NoteWorkspace : IAsyncDisposable
         SearchFocus = new(owner, "search-focus");
         TitleFocus = new(owner, "title-focus");
         Constraints = new(owner);
-        ListViewport = new(owner, name: "notes-list-viewport");
         Items = owner.Signal<IReadOnlyList<NoteRecord>>([], "notes");
         _allItems = owner.Signal<IReadOnlyList<NoteRecord>>([], "all-notes");
         Selected = owner.Signal<NoteRecord?>(null, "selected-note");
@@ -120,7 +119,6 @@ public sealed class NoteWorkspace : IAsyncDisposable
     public ApplicationCommand FocusCaptureCommand { get; }
     public ApplicationCommand FocusSearchCommand { get; }
     public ResponsiveConstraints Constraints { get; }
-    public ViewportState ListViewport { get; }
     public Signal<IReadOnlyList<NoteRecord>> Items { get; }
 
     /// <summary>Gets the currently visible, archive-filtered and query-filtered records.</summary>
@@ -215,9 +213,6 @@ public sealed class NoteWorkspace : IAsyncDisposable
 
     /// <summary>Shows the archive, saving the active draft before refreshing the collection.</summary>
     public void ShowArchive() => SelectCollection(true);
-
-    /// <summary>Clears the hoisted search session without changing the selected note.</summary>
-    public void ClearSearch() => Search.Text = string.Empty;
 
     public void Select(Guid id)
     {
@@ -399,7 +394,7 @@ public sealed class NoteWorkspace : IAsyncDisposable
             return;
         await Store.ArchiveAsync(item.Id, !item.IsArchived);
         await RefreshAsync();
-        SelectRecord((VisibleItems.Count == 0 ? null : VisibleItems[0]));
+        SelectRecord(VisibleItems.Count == 0 ? null : VisibleItems[0]);
         BackToCollection();
     }
 

@@ -2,7 +2,12 @@ param([switch] $UpdateLock)
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
 $previousCredential = $env:NuGetPackageSourceCredentials_lucent
+$previousHttpCache = $env:NUGET_HTTP_CACHE_PATH
 try {
+    # SDK resolution precedes restore switches, so isolate its HTTP cache during upgrades.
+    if ($UpdateLock) {
+        $env:NUGET_HTTP_CACHE_PATH = Join-Path $root ("artifacts/nuget-http/" + [Guid]::NewGuid().ToString("N"))
+    }
     if (-not $previousCredential) {
         $token = $env:GITHUB_TOKEN
         if (-not $token) {
@@ -22,4 +27,7 @@ try {
             if ($LASTEXITCODE) { throw "Tests failed: $project" }
         }
     } finally { Pop-Location }
-} finally { $env:NuGetPackageSourceCredentials_lucent = $previousCredential }
+} finally {
+    $env:NuGetPackageSourceCredentials_lucent = $previousCredential
+    $env:NUGET_HTTP_CACHE_PATH = $previousHttpCache
+}

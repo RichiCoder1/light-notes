@@ -1,3 +1,4 @@
 {
-  "dotnet.defaultSolution": "LightNotes.slnx"
+  "dotnet.defaultSolution": "LightNotes.slnx",
+  "lucentLui.projectPath": "src/LightNotes/LightNotes.csproj"
 }

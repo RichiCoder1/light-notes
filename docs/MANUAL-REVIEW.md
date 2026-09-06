@@ -29,9 +29,9 @@ A helpful feedback note contains: what you were trying to do, what felt wrong, w
 
 ## Framework and `.lui` pass
 
-Read the app composition in this order: [AppView](../src/LightNotes/AppView.lui), [CollectionPane](../src/LightNotes/CollectionPane.lui), [EditorPane](../src/LightNotes/EditorPane.lui), and [NoteRow](../src/LightNotes/NoteRow.lui). [NoteWorkspace](../src/LightNotes/NoteWorkspace.cs) owns application state and sessions; [LightNotesTheme](../src/LightNotes/LightNotesTheme.cs) owns application tokens. Program configures hosting and the native window rather than assembling a UI tree.
+Read the app composition in this order: [AppView](../src/LightNotes/AppView.lui), [CollectionPane](../src/LightNotes/CollectionPane.lui), [EditorPane](../src/LightNotes/EditorPane.lui), and [NoteRow](../src/LightNotes/NoteRow.lui). [NoteWorkspace](../src/LightNotes/NoteWorkspace.cs) owns durable application state and shared editor sessions; CollectionPane owns its local viewport and presentation state; [LightNotesTheme](../src/LightNotes/LightNotesTheme.cs) owns application tokens. Program configures hosting and the native window rather than assembling a UI tree.
 
-The shell uses one retained row with responsive widths and participation. Collapsing a pane removes it from layout/input/semantics while retaining its mounted state. `VirtualizedList` accepts an application-owned viewport, and the text fields share owned editor sessions. These are separate contracts: retaining text alone does not establish focus, caret or scroll continuity.
+The shell uses one retained row with responsive widths and participation. Collapsing a pane removes it from layout/input/semantics while retaining its mounted state. `VirtualizedList` receives CollectionPane's mount-owned viewport, and the text fields share owned editor sessions. These are separate contracts: retaining text alone does not establish focus, caret or scroll continuity.
 
 New reusable presentation values provide inset borders, device-pixel hairlines and keyboard focus rings independently of selection. Windows initial/minimum dimensions belong to the Windows host options; portable Core does not depend on SDL or window management.
 

@@ -115,13 +115,13 @@ public sealed class WorkspaceTests
         Assert.AreEqual("Draft survives a filtered collection.", model.Body.Text);
         StringAssert.Contains(model.EmptyStateText, "no matching note");
 
-        model.ClearSearch();
+        model.Search.Text = string.Empty;
         fixture.Until(() => model.VisibleItems.Count == 2);
         Assert.AreEqual("Draft survives a filtered collection.", model.Body.Text);
     }
 
     [TestMethod]
-    public void CompactBackPreservesSearchSelectionDraftAndListViewport()
+    public void CompactBackPreservesSearchSelectionAndDraft()
     {
         using var fixture = new Fixture();
         var model = fixture.Model;
@@ -132,7 +132,6 @@ public sealed class WorkspaceTests
         model.Body.Text = "Keep this draft while switching routes.";
         model.Search.Text = "compact";
         fixture.Until(() => model.VisibleItems.Count == 1);
-        model.ListViewport.Offset = new ScrollOffset(0, 96);
 
         Assert.IsTrue(model.IsCompact);
         Assert.IsTrue(model.ShowEditor);
@@ -143,7 +142,6 @@ public sealed class WorkspaceTests
         Assert.IsFalse(model.ShowEditor);
         Assert.AreEqual(id, model.Selected.Value!.Id);
         Assert.AreEqual("compact", model.Query);
-        Assert.AreEqual(new ScrollOffset(0, 96), model.ListViewport.Offset);
         Assert.AreEqual("Keep this draft while switching routes.", model.Body.Text);
 
         model.Select(id);

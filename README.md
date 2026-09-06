@@ -23,13 +23,13 @@ Run the published application from `artifacts/publish/LightNotes.exe`, retaining
 
 ## Dependencies and development
 
-Lucent is consumed entirely through prerelease packages. The `.lui` SDK pin in global.json and the runtime pin in Directory.Build.props must match. packages.lock.json records the dependency closure. To upgrade, change both pins, run `./tools/Build.ps1 -UpdateLock -Publish`, and commit the updated pins and lock file together. Do not use floating prerelease versions.
+Lucent is consumed entirely through prerelease packages. The `.lui` SDK pin in global.json and the runtime pin in Directory.Build.props must match. packages.lock.json records the dependency closure. To upgrade, change both pins, run `./tools/Build.ps1 -UpdateLock -Publish`, and commit the updated pins and lock file together. Do not use floating prerelease versions. `-UpdateLock` temporarily uses a fresh NuGet HTTP cache so the SDK resolver sees newly published versions; normal builds retain the usual cache.
 
-For framework work, pack a unique local version using Lucent's [package instructions](https://github.com/RichiCoder1/lucent/blob/b9d6cbecc9ff410c96451a0e50b68f8345a3382a/docs/PACKAGES.md), point the `lucent` source in NuGet.config at that local folder, and update both pins. Restore needs no prebuilt Lucent checkout DLLs or hidden Debug outputs. Keep local feed paths out of commits.
+For framework work, pack a unique local version using Lucent's [package instructions](https://github.com/RichiCoder1/lucent/blob/9bce4ffd6f6dcc065b062150653cc317b44f04b1/docs/PACKAGES.md), point the `lucent` source in NuGet.config at that local folder, and update both pins. Restore needs no prebuilt Lucent checkout DLLs or hidden Debug outputs. Keep local feed paths out of commits.
 
 Open the repository root in VS Code; the checked-in settings select `LightNotes.slnx`, containing the app and managed tests. This keeps vendored Lucent package-test fixtures out of automatic project discovery. Desktop tests remain opt-in through their explicit project. VS Code also needs NuGet feed credentials available outside Build.ps1; configure the `lucent` source in your user-level NuGet.Config with Windows-encrypted credentials, then reload the window.
 
-UI belongs in `src/LightNotes/*.lui`; C# supplies the entry point, models and services. No editor extension is required to build. For VS Code language support, follow the [pinned tooling contract](https://github.com/RichiCoder1/lucent/blob/b9d6cbecc9ff410c96451a0e50b68f8345a3382a/docs/LUI-SDK-TOOLING.md); the language server is a separate development tool.
+UI and mount-owned presentation state belong in `src/LightNotes/*.lui`; C# supplies the entry point, application models and services. CollectionPane owns its viewport, derived presentation, and Clear Search handler. Workspace-owned drafts, accepted writes, and cross-pane focus survive presentation changes. No editor extension is required to build. For VS Code language support, follow the [pinned tooling contract](https://github.com/RichiCoder1/lucent/blob/9bce4ffd6f6dcc065b062150653cc317b44f04b1/docs/LUI-SDK-TOOLING.md); the language server is a separate development tool.
 
 The owner and coding agents on the owner's machine are the primary development audience. Cross-repository work is tracked initially in [Lucent #62](https://github.com/RichiCoder1/lucent/issues/62) and [the app plan](https://github.com/RichiCoder1/lucent/issues/63). MIT licensed; see [CREDITS](CREDITS.md) for dependency provenance.
 
@@ -65,3 +65,5 @@ dotnet test --project ./tests/LightNotes.Desktop.Tests/LightNotes.Desktop.Tests.
 The test writes its review screenshot to `artifacts/desktop/light-notes-persistence.png`; set `LIGHT_NOTES_DESKTOP_ARTIFACTS` to override that location.
 
 The desktop suite also checks responsive pane replacement, minimum client size, draft continuity, shortcut/Back focus and targeted Axe.Windows rules. It takes foreground focus and should run only while the PC is available. Offline shell captures can be exported during managed tests by setting `LIGHT_NOTES_REVIEW_ARTIFACTS`; these are renderer fixtures, not native desktop screenshots.
+
+For the local-state declaration rules and next review questions, see [component ownership](docs/COMPONENT-OWNERSHIP.md).

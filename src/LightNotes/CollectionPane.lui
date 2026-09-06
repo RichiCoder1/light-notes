@@ -87,22 +87,32 @@ style CollectionListStyle {
 }
 
 public component CollectionPane(NoteWorkspace model) {
-    <Column style={CollectionPaneStyle with { Width: model.IsCompact ? null : model.IsWide ? 320f : 300f; MainGrow: model.IsCompact ? 1f : 0f; MainShrink: model.IsCompact ? 1f : 0f; Participation: !model.IsCompact || model.ShowCollection ? ElementParticipation.Visible : ElementParticipation.Collapsed; }} name="notes.collection">
+    readonly ViewportState viewport = new(owner, name: "notes-list-viewport");
+    bool compact = model.IsCompact;
+    float? paneWidth = compact ? null : model.IsWide ? 320f : 300f;
+    float paneFlex = compact ? 1f : 0f;
+    ElementParticipation paneParticipation = !compact || model.ShowCollection ? ElementParticipation.Visible : ElementParticipation.Collapsed;
+    bool hasQuery = model.Search.Text.Length != 0;
+    bool showList = model.IsReady && model.VisibleItems.Count != 0;
+
+    void ClearSearch() => model.Search.Text = string.Empty;
+
+    <Column style={CollectionPaneStyle with { Width: paneWidth; MainGrow: paneFlex; MainShrink: paneFlex; Participation: paneParticipation; }} name="notes.collection">
         <Row style={CollectionHeaderStyle} name="notes.collection-header">
             <Text content={() => model.ShowArchived.Value ? "Archive" : "Inbox"} style={CollectionTitleStyle} name="notes.collection-title" />
-            <Text content={() => NotePresentation.CollectionCount(model)} style={CollectionCountStyle with { Participation: model.IsCompact ? ElementParticipation.Collapsed : ElementParticipation.Visible; }} name="notes.collection-count" />
-            <Button onInvoke={() => model.ShowInbox()} style={CompactDestinationStyle with { Participation: model.IsCompact && model.ShowArchived.Value ? ElementParticipation.Visible : ElementParticipation.Collapsed; }} name="notes.compact-inbox">Inbox</Button>
-            <Button onInvoke={() => model.ShowArchive()} style={CompactDestinationStyle with { Participation: model.IsCompact && !model.ShowArchived.Value ? ElementParticipation.Visible : ElementParticipation.Collapsed; }} name="notes.compact-archive">Archive</Button>
+            <Text content={() => NotePresentation.CollectionCount(model)} style={CollectionCountStyle with { Participation: compact ? ElementParticipation.Collapsed : ElementParticipation.Visible; }} name="notes.collection-count" />
+            <Button onInvoke={() => model.ShowInbox()} style={CompactDestinationStyle with { Participation: compact && model.ShowArchived.Value ? ElementParticipation.Visible : ElementParticipation.Collapsed; }} name="notes.compact-inbox">Inbox</Button>
+            <Button onInvoke={() => model.ShowArchive()} style={CompactDestinationStyle with { Participation: compact && !model.ShowArchived.Value ? ElementParticipation.Visible : ElementParticipation.Collapsed; }} name="notes.compact-archive">Archive</Button>
         </Row>
         <TextField session={model.Search} focusTarget={model.SearchFocus} label="Search saved items" style={SearchFieldStyle with { Enabled: model.IsReady && !model.IsBusy; }} name="notes.search" />
-        if (model.Search.Text.Length != 0) {
+        if (hasQuery) {
             <Row style={Style.Empty.Height(30).MainAlignment(LayoutAlignment.End)} name="notes.search-actions">
-                <Button onInvoke={() => model.ClearSearch()} style={ClearSearchStyle} name="notes.clear-search">Clear search</Button>
+                <Button onInvoke={ClearSearch} style={ClearSearchStyle} name="notes.clear-search">Clear search</Button>
             </Row>
         }
         <CollectionLoading model={model} />
         <CollectionError model={model} />
-        <CollectionEmpty model={model} />
-        <VirtualizedList source={() => model.VisibleItems} key={item => item.Id} row={item => NoteRow(model, () => item.Value)} rowHeight={() => 72f} label="Saved notes" viewport={model.ListViewport} style={CollectionListStyle with { Participation: model.IsReady && model.VisibleItems.Count != 0 ? ElementParticipation.Visible : ElementParticipation.Collapsed; }} name="notes.list" />
+        <CollectionEmpty model={model} clearSearch={ClearSearch} />
+        <VirtualizedList source={() => model.VisibleItems} key={item => item.Id} row={item => NoteRow(model, () => item.Value)} rowHeight={() => 72f} label="Saved notes" viewport={viewport} style={CollectionListStyle with { Participation: showList ? ElementParticipation.Visible : ElementParticipation.Collapsed; }} name="notes.list" />
     </Column>
 }

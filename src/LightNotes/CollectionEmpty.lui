@@ -35,12 +35,12 @@ style EmptyCollectionActionStyle {
     }
 }
 
-public component CollectionEmpty(NoteWorkspace model) {
+public component CollectionEmpty(NoteWorkspace model, Action clearSearch) {
     <Column style={EmptyCollectionPanelStyle with { Participation: model.IsReady && model.VisibleItems.Count == 0 ? ElementParticipation.Visible : ElementParticipation.Collapsed; }} name="notes.collection-empty">
         <Text content={() => NotePresentation.EmptyHeading(model)} style={EmptyCollectionHeadingStyle} name="notes.collection-empty-title" />
         <Text content={() => NotePresentation.EmptyGuidance(model)} style={EmptyCollectionBodyStyle} name="notes.collection-empty-guidance" />
         if (model.Search.Text.Length != 0) {
-            <Button onInvoke={() => model.ClearSearch()} style={EmptyCollectionActionStyle} name="notes.collection-empty-clear">Clear search</Button>
+            <Button onInvoke={clearSearch} style={EmptyCollectionActionStyle} name="notes.collection-empty-clear">Clear search</Button>
         }
     </Column>
 }

@@ -50,7 +50,28 @@ public sealed class ShellPresentationTests
         AssertSemantic(composition, search, true, "wide search");
         AssertSemantic(composition, title, true, "wide title");
 
-        model.ListViewport.Offset = new ScrollOffset(0, 144);
+        var scrollAnchorLabel = NotePresentation.RowLabel(model.VisibleItems[4]);
+        var scrollAnchor = Semantic(composition, scrollAnchorLabel, SemanticRole.ListItem);
+        var initialScrollAnchorY = wide
+            .Boxes.Single(box => box.Identity.ElementId == scrollAnchor.Identity.ElementId)
+            .Bounds.Y;
+        var scrollTargetBounds = wide
+            .Boxes.Single(box => box.Identity.ElementId == scrollAnchor.Identity.ElementId)
+            .Bounds;
+        var wheel = composition.Input.DispatchWheel(
+            new(
+                scrollTargetBounds.X + scrollTargetBounds.Width / 2f,
+                scrollTargetBounds.Y + scrollTargetBounds.Height / 2f,
+                0,
+                144
+            )
+        );
+        Assert.IsTrue(
+            wheel.Handled,
+            $"Review list did not accept wheel input. Bounds={scrollTargetBounds}; "
+                + $"status={wheel.Status}; rejection={wheel.Rejection}; target={wheel.Target}; "
+                + composition.Input.Dump()
+        );
         wide = Scenario(
             fixture,
             composition,
@@ -62,10 +83,13 @@ public sealed class ShellPresentationTests
             1,
             export: false
         );
-        var retainedListOffset = model.ListViewport.Offset;
+        scrollAnchor = Semantic(composition, scrollAnchorLabel, SemanticRole.ListItem);
+        var retainedScrollAnchorY = wide
+            .Boxes.Single(box => box.Identity.ElementId == scrollAnchor.Identity.ElementId)
+            .Bounds.Y;
         Assert.IsTrue(
-            retainedListOffset.Y > 0,
-            "Review list did not accept a retained scroll offset."
+            retainedScrollAnchorY < initialScrollAnchorY - 70f,
+            "Wheel input did not visibly scroll the review list."
         );
 
         var medium = Scenario(fixture, composition, renderer, model, "medium", 900, 760, 1);
@@ -83,9 +107,11 @@ public sealed class ShellPresentationTests
             Semantic(composition, "Archive", SemanticRole.Button),
             Semantic(composition, "Backup", SemanticRole.Button)
         );
+        scrollAnchor = Semantic(composition, scrollAnchorLabel, SemanticRole.ListItem);
         Assert.AreEqual(
-            retainedListOffset,
-            model.ListViewport.Offset,
+            retainedScrollAnchorY,
+            medium.Boxes.Single(box => box.Identity.ElementId == scrollAnchor.Identity.ElementId).Bounds.Y,
+            0.01f,
             "Medium resize reset list scroll."
         );
 
@@ -136,9 +162,11 @@ public sealed class ShellPresentationTests
             true,
             "compact archive destination"
         );
+        scrollAnchor = Semantic(composition, scrollAnchorLabel, SemanticRole.ListItem);
         Assert.AreEqual(
-            retainedListOffset,
-            model.ListViewport.Offset,
+            retainedScrollAnchorY,
+            compactCollection.Boxes.Single(box => box.Identity.ElementId == scrollAnchor.Identity.ElementId).Bounds.Y,
+            0.01f,
             "Compact Back reset list scroll."
         );
         Assert.AreEqual(
@@ -207,9 +235,11 @@ public sealed class ShellPresentationTests
         );
         Assert.AreEqual(0, model.Body.Anchor, "Responsive layout lost body selection anchor.");
         Assert.AreEqual(5, model.Body.Caret, "Responsive layout lost body selection caret.");
+        scrollAnchor = Semantic(composition, scrollAnchorLabel, SemanticRole.ListItem);
         Assert.AreEqual(
-            retainedListOffset,
-            model.ListViewport.Offset,
+            retainedScrollAnchorY,
+            returnedWide.Boxes.Single(box => box.Identity.ElementId == scrollAnchor.Identity.ElementId).Bounds.Y,
+            0.01f,
             "Bidirectional resize reset list scroll."
         );
         Assert.AreEqual(
