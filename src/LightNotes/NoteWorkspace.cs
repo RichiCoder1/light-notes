@@ -17,6 +17,8 @@ public sealed class NoteWorkspace : IAsyncDisposable
     private readonly Signal<bool> _busy;
     private readonly Signal<string?> _error;
     private readonly Signal<string> _status;
+    private readonly Signal<IReadOnlyList<NoteRecord>> _allItems;
+    private readonly Signal<NoteWorkspaceRoute> _route;
 
     public NoteWorkspace(ReactiveScope owner, string databasePath)
     {
@@ -25,10 +27,18 @@ public sealed class NoteWorkspace : IAsyncDisposable
         Title = new(owner, "empty", name: "title");
         Url = new(owner, "empty", name: "url");
         Body = new(owner, "empty", name: "body", multiline: true);
+        Search = new(owner, "search", name: "search");
+        CaptureFocus = new(owner, "capture-focus");
+        SearchFocus = new(owner, "search-focus");
+        TitleFocus = new(owner, "title-focus");
         Constraints = new(owner);
+        ListViewport = new(owner, name: "notes-list-viewport");
         Items = owner.Signal<IReadOnlyList<NoteRecord>>([], "notes");
+        _allItems = owner.Signal<IReadOnlyList<NoteRecord>>([], "all-notes");
         Selected = owner.Signal<NoteRecord?>(null, "selected-note");
         ShowArchived = owner.Signal(false, "show-archived");
+        _route = owner.Signal(NoteWorkspaceRoute.Collection, "route");
+        _ = owner.Effect(ApplyFilter, "notes-filter");
         _needsSave = owner.Signal(false, "needs-save");
         _ready = owner.Signal(false, "storage-ready");
         _busy = owner.Signal(false, "workspace-busy");
@@ -70,8 +80,31 @@ public sealed class NoteWorkspace : IAsyncDisposable
             () => CanEdit,
             "toggle-archive"
         );
+        FocusCaptureCommand = new(
+            owner,
+            _ =>
+            {
+                RequestFocus(CaptureFocus, selectAll: true);
+                return Task.CompletedTask;
+            },
+            () => CanEdit,
+            "focus-capture"
+        );
+        FocusSearchCommand = new(
+            owner,
+            _ =>
+            {
+                if (IsCompact)
+                    _route.Value = NoteWorkspaceRoute.Collection;
+                RequestFocus(SearchFocus, selectAll: true);
+                return Task.CompletedTask;
+            },
+            () => CanEdit,
+            "focus-search"
+        );
         Bindings = new([
-            new(CaptureCommand, KeyChord.Ctrl(Key.N)),
+            new(FocusCaptureCommand, KeyChord.Ctrl(Key.N)),
+            new(FocusSearchCommand, KeyChord.Ctrl(Key.F)),
             new(SaveCommand, KeyChord.Ctrl(Key.S)),
         ]);
     }
@@ -80,10 +113,21 @@ public sealed class NoteWorkspace : IAsyncDisposable
     public EditorSession Title { get; }
     public EditorSession Url { get; }
     public EditorSession Body { get; }
+    public EditorSession Search { get; }
+    public FocusTarget CaptureFocus { get; }
+    public FocusTarget SearchFocus { get; }
+    public FocusTarget TitleFocus { get; }
+    public ApplicationCommand FocusCaptureCommand { get; }
+    public ApplicationCommand FocusSearchCommand { get; }
     public ResponsiveConstraints Constraints { get; }
+    public ViewportState ListViewport { get; }
     public Signal<IReadOnlyList<NoteRecord>> Items { get; }
+
+    /// <summary>Gets the currently visible, archive-filtered and query-filtered records.</summary>
+    public IReadOnlyList<NoteRecord> VisibleItems => Items.Value;
     public Signal<NoteRecord?> Selected { get; }
     public Signal<bool> ShowArchived { get; }
+    public Signal<NoteWorkspaceRoute> Route => _route;
     public ApplicationCommand CaptureCommand { get; }
     public ApplicationCommand SaveCommand { get; }
     public ApplicationCommand ArchiveCommand { get; }
@@ -108,20 +152,121 @@ public sealed class NoteWorkspace : IAsyncDisposable
         : IsDirty ? "Unsaved changes - Ctrl+S to save"
         : _status.Value;
 
+    /// <summary>Gets whether the store is still loading and has not reported an error.</summary>
+    public bool IsLoading => !IsReady && !HasError;
+
+    /// <summary>Gets whether the most recent store operation failed.</summary>
+    public bool HasError => _error.Value is not null;
+
+    /// <summary>Gets the store failure text, when one is available.</summary>
+    public string? ErrorMessage => _error.Value;
+
+    /// <summary>Gets the current plain-text query mirrored by the Search editor session.</summary>
+    public string Query => Search.Text;
+
+    /// <summary>Gets the active shell width bucket from the mounted responsive container.</summary>
+    public NoteWorkspaceLayout Layout
+    {
+        get
+        {
+            var width = Constraints.Current.Width;
+            return width >= 1060f ? NoteWorkspaceLayout.Wide
+                : width >= 840f ? NoteWorkspaceLayout.Medium
+                : NoteWorkspaceLayout.Compact;
+        }
+    }
+
+    public bool IsWide => Layout == NoteWorkspaceLayout.Wide;
+    public bool IsCompact => Layout == NoteWorkspaceLayout.Compact;
+    public bool ShowCollection => !IsCompact || _route.Value == NoteWorkspaceRoute.Collection;
+    public bool ShowEditor => !IsCompact || _route.Value == NoteWorkspaceRoute.Editor;
+    public bool IsFiltering => !string.IsNullOrWhiteSpace(Search.Text);
+    public bool HasItems => VisibleItems.Count != 0;
+    public bool HasSearchResults => HasItems;
+    public string EmptyStateText =>
+        IsFiltering ? $"No notes match \"{Search.Text.Trim()}\"."
+        : ShowArchived.Value ? "Nothing is archived yet."
+        : "Your inbox is clear.";
+    public string CollectionTitle => ShowArchived.Value ? "Archive" : "Inbox";
+    public int InboxCount => _allItems.Value.Count(item => !item.IsArchived);
+    public int ArchiveCount => _allItems.Value.Count(item => item.IsArchived);
+
     public Task StartAsync() => Run(LoadAsync, "Opening your notes...");
+
+    /// <summary>Returns the compact shell to its collection route while retaining the editor draft.</summary>
+    public void BackToCollection()
+    {
+        if (!IsCompact)
+            return;
+        _route.Value = NoteWorkspaceRoute.Collection;
+        RequestFocus(SearchFocus);
+    }
+
+    private void RequestFocus(FocusTarget target, bool selectAll = false)
+    {
+        CaptureFocus.Cancel();
+        SearchFocus.Cancel();
+        TitleFocus.Cancel();
+        target.Request(selectAll);
+    }
+
+    /// <summary>Shows the inbox, saving the active draft before refreshing the collection.</summary>
+    public void ShowInbox() => SelectCollection(false);
+
+    /// <summary>Shows the archive, saving the active draft before refreshing the collection.</summary>
+    public void ShowArchive() => SelectCollection(true);
+
+    /// <summary>Clears the hoisted search session without changing the selected note.</summary>
+    public void ClearSearch() => Search.Text = string.Empty;
 
     public void Select(Guid id)
     {
-        if (!CanEdit || Selected.Value?.Id == id)
+        if (!CanEdit)
             return;
+        if (Selected.Value?.Id == id)
+        {
+            if (IsCompact)
+            {
+                _route.Value = NoteWorkspaceRoute.Editor;
+                RequestFocus(TitleFocus);
+            }
+            return;
+        }
         _ = Run(
             async () =>
             {
                 await SaveCurrentAsync();
-                SelectRecord(Items.Value.FirstOrDefault(item => item.Id == id));
+                var selected = Items.Value.FirstOrDefault(item => item.Id == id);
+                SelectRecord(selected);
+                if (selected is not null && IsCompact)
+                {
+                    _route.Value = NoteWorkspaceRoute.Editor;
+                    RequestFocus(TitleFocus);
+                }
             },
             "Opening note..."
         );
+    }
+
+    private void SelectCollection(bool archived)
+    {
+        if (!CanEdit)
+            return;
+        if (ShowArchived.Value == archived)
+        {
+            BackToCollection();
+            return;
+        }
+        _ = Run(() => SetCollectionAsync(archived), "Opening notes...");
+    }
+
+    private async Task SetCollectionAsync(bool archived)
+    {
+        await SaveCurrentAsync();
+        ShowArchived.Value = archived;
+        await RefreshAsync();
+        SelectRecord(VisibleItems.Count == 0 ? null : VisibleItems[0]);
+        BackToCollection();
     }
 
     private Task Run(Func<Task> action, string status)
@@ -180,7 +325,8 @@ public sealed class NoteWorkspace : IAsyncDisposable
     {
         _store ??= await NoteStore.OpenAsync(_databasePath);
         await RefreshAsync();
-        SelectRecord((Items.Value.Count == 0 ? null : Items.Value[0]));
+        SelectRecord((VisibleItems.Count == 0 ? null : VisibleItems[0]));
+        _route.Value = NoteWorkspaceRoute.Collection;
         _ready.Value = true;
         _status.Value =
             Items.Value.Count == 0 ? "Your notes stay on this device" : "Saved on this device";
@@ -209,6 +355,11 @@ public sealed class NoteWorkspace : IAsyncDisposable
         ShowArchived.Value = false;
         await RefreshAsync();
         SelectRecord(saved);
+        if (IsCompact)
+        {
+            _route.Value = NoteWorkspaceRoute.Editor;
+            RequestFocus(TitleFocus);
+        }
     }
 
     private async Task SaveCurrentAsync()
@@ -248,21 +399,33 @@ public sealed class NoteWorkspace : IAsyncDisposable
             return;
         await Store.ArchiveAsync(item.Id, !item.IsArchived);
         await RefreshAsync();
-        SelectRecord((Items.Value.Count == 0 ? null : Items.Value[0]));
+        SelectRecord((VisibleItems.Count == 0 ? null : VisibleItems[0]));
+        BackToCollection();
     }
 
-    private async Task ToggleArchiveAsync()
-    {
-        await SaveCurrentAsync();
-        ShowArchived.Value = !ShowArchived.Value;
-        await RefreshAsync();
-        SelectRecord((Items.Value.Count == 0 ? null : Items.Value[0]));
-    }
+    private Task ToggleArchiveAsync() => SetCollectionAsync(!ShowArchived.Value);
 
     private async Task RefreshAsync()
     {
         var all = await Store.ListAsync(includeArchived: true);
-        Items.Value = all.Where(item => item.IsArchived == ShowArchived.Value).ToArray();
+        _allItems.Value = all;
+        ApplyFilter();
+    }
+
+    private void ApplyFilter()
+    {
+        var query = Search.Text.Trim();
+        var archived = ShowArchived.Value;
+        var visible = _allItems
+            .Value.Where(item => item.IsArchived == archived)
+            .Where(item =>
+                query.Length == 0
+                || item.Title.Contains(query, StringComparison.OrdinalIgnoreCase)
+                || (item.Url?.Contains(query, StringComparison.OrdinalIgnoreCase) ?? false)
+                || item.Body.Contains(query, StringComparison.OrdinalIgnoreCase)
+            )
+            .ToArray();
+        Items.Value = visible;
     }
 
     private void SelectRecord(NoteRecord? item)

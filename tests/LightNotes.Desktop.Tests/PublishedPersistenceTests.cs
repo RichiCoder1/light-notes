@@ -10,7 +10,7 @@ using FlaUI.UIA3;
 namespace LightNotes.Desktop.Tests;
 
 [TestClass]
-public sealed class PublishedPersistenceTests
+public sealed partial class PublishedPersistenceTests
 {
     private static readonly TimeSpan Timeout = TimeSpan.FromSeconds(30);
 
@@ -29,7 +29,7 @@ public sealed class PublishedPersistenceTests
                     var root = automation.FromHandle(window);
                     WaitForInitialStatus(process, root);
 
-                    var capture = FindByName(root, ControlType.Edit, "Capture a URL or thought");
+                    var capture = FindByName(root, ControlType.Edit, "Capture a link or thought");
                     root.SetForeground();
                     capture.Focus();
                     Keyboard.Type("Persisted desktop note");
@@ -37,11 +37,11 @@ public sealed class PublishedPersistenceTests
                     WaitUntil(
                         process,
                         () =>
-                            TryReadValue(root, "Capture a URL or thought", out var currentCapture)
+                            TryReadValue(root, "Capture a link or thought", out var currentCapture)
                             && currentCapture == "Persisted desktop note",
                         "The capture field rejected physical keyboard input."
                     );
-                    InvokeButton(process, root, "Capture");
+                    InvokeButton(process, root, "Add");
                     WaitForStatus(process, root, "Saved on this device");
 
                     var row = WaitForElement(
@@ -51,16 +51,25 @@ public sealed class PublishedPersistenceTests
                             root.FindFirstDescendant(condition =>
                                 condition
                                     .ByControlType(ControlType.ListItem)
-                                    .And(condition.ByName("Persisted desktop note · Note"))
+                                    .And(
+                                        condition.ByName(
+                                            "Persisted desktop note",
+                                            FlaUI
+                                                .Core
+                                                .Definitions
+                                                .PropertyConditionFlags
+                                                .MatchSubstring
+                                        )
+                                    )
                             ),
                         "The captured note did not appear in the inbox."
                     );
                     Assert.IsNotNull(row, "The captured note row was not exposed through UIA.");
 
                     SetFieldValue(process, root, "Title", "Persisted title");
-                    SetFieldValue(process, root, "Body", "Persisted body");
+                    SetFieldValue(process, root, "Notes", "Persisted body");
                     WaitForStatus(process, root, "Unsaved changes");
-                    InvokeButton(process, root, "Save");
+                    InvokeButton(process, root, "Save now");
                     WaitForStatus(process, root, "Saved on this device");
 
                     var artifactRoot =
@@ -111,7 +120,7 @@ public sealed class PublishedPersistenceTests
                     );
                     WaitUntil(
                         reopened,
-                        () => TryReadValue(root, "Body", out var body) && body == "Persisted body",
+                        () => TryReadValue(root, "Notes", out var body) && body == "Persisted body",
                         "The edited body was not restored after reopening."
                     );
 
@@ -328,13 +337,11 @@ public sealed class PublishedPersistenceTests
         WaitUntil(
             process,
             () =>
-                root.FindAllDescendants(condition => condition.ByControlType(ControlType.StatusBar))
-                    .Any(status =>
-                        status.Name.Contains(
-                            "Your notes stay on this device",
-                            StringComparison.Ordinal
-                        ) || status.Name.Contains("Saved on this device", StringComparison.Ordinal)
-                    ),
+                root.FindFirstDescendant(condition =>
+                    condition
+                        .ByControlType(ControlType.Edit)
+                        .And(condition.ByName("Capture a link or thought"))
+                )?.IsEnabled == true,
             "Light Notes did not finish opening the local store."
         );
     }

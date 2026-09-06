@@ -91,6 +91,89 @@ public sealed class WorkspaceTests
     }
 
     [TestMethod]
+    public void SearchFiltersLoadedRecordsWithoutDiscardingTheSelectedDraft()
+    {
+        using var fixture = new Fixture();
+        var model = fixture.Model;
+        fixture.Pump(model.StartAsync());
+        model.Capture.Text = "First searchable note";
+        fixture.Execute(model.CaptureCommand);
+        var first = model.Selected.Value!.Id;
+        model.Capture.Text = "Second searchable note";
+        fixture.Execute(model.CaptureCommand);
+
+        model.Select(first);
+        fixture.Until(() => !model.IsBusy);
+        model.Body.Text = "Draft survives a filtered collection.";
+        model.Search.Text = "first";
+        fixture.Until(() => model.VisibleItems.Count == 1);
+        Assert.AreEqual(first, model.VisibleItems.Single().Id);
+
+        model.Search.Text = "no matching note";
+        fixture.Until(() => model.VisibleItems.Count == 0);
+        Assert.AreEqual(first, model.Selected.Value!.Id);
+        Assert.AreEqual("Draft survives a filtered collection.", model.Body.Text);
+        StringAssert.Contains(model.EmptyStateText, "no matching note");
+
+        model.ClearSearch();
+        fixture.Until(() => model.VisibleItems.Count == 2);
+        Assert.AreEqual("Draft survives a filtered collection.", model.Body.Text);
+    }
+
+    [TestMethod]
+    public void CompactBackPreservesSearchSelectionDraftAndListViewport()
+    {
+        using var fixture = new Fixture();
+        var model = fixture.Model;
+        fixture.Pump(model.StartAsync());
+        model.Capture.Text = "A compact route note";
+        fixture.Execute(model.CaptureCommand);
+        var id = model.Selected.Value!.Id;
+        model.Body.Text = "Keep this draft while switching routes.";
+        model.Search.Text = "compact";
+        fixture.Until(() => model.VisibleItems.Count == 1);
+        model.ListViewport.Offset = new ScrollOffset(0, 96);
+
+        Assert.IsTrue(model.IsCompact);
+        Assert.IsTrue(model.ShowEditor);
+        model.BackToCollection();
+
+        Assert.AreEqual(NoteWorkspaceRoute.Collection, model.Route.Value);
+        Assert.IsTrue(model.ShowCollection);
+        Assert.IsFalse(model.ShowEditor);
+        Assert.AreEqual(id, model.Selected.Value!.Id);
+        Assert.AreEqual("compact", model.Query);
+        Assert.AreEqual(new ScrollOffset(0, 96), model.ListViewport.Offset);
+        Assert.AreEqual("Keep this draft while switching routes.", model.Body.Text);
+
+        model.Select(id);
+        Assert.AreEqual(NoteWorkspaceRoute.Editor, model.Route.Value);
+        Assert.AreEqual("Keep this draft while switching routes.", model.Body.Text);
+    }
+
+    [TestMethod]
+    public void ExplicitCollectionDestinationsDoNotToggleToTheWrongCollection()
+    {
+        using var fixture = new Fixture();
+        var model = fixture.Model;
+        fixture.Pump(model.StartAsync());
+        model.Capture.Text = "Move between collections";
+        fixture.Execute(model.CaptureCommand);
+        fixture.Execute(model.ArchiveCommand);
+        Assert.IsFalse(model.ShowArchived.Value);
+
+        model.ShowArchive();
+        fixture.Until(() => !model.IsBusy);
+        Assert.IsTrue(model.ShowArchived.Value);
+        Assert.AreEqual(1, model.ArchiveCount);
+
+        model.ShowInbox();
+        fixture.Until(() => !model.IsBusy);
+        Assert.IsFalse(model.ShowArchived.Value);
+        Assert.AreEqual(0, model.InboxCount);
+    }
+
+    [TestMethod]
     public void AConcurrentDiskChangePreservesTheDraftAndAllowsExplicitRetry()
     {
         using var fixture = new Fixture();

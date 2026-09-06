@@ -1,0 +1,51 @@
+namespace LightNotes;
+style CaptureBarStyle {
+    Background: LightNotesTheme.Canvas;
+    Axis: LayoutAxis.Row;
+    CrossAlignment: LayoutAlignment.Center;
+    Spacing: 10;
+    Height: 54;
+    Padding: Insets.Symmetric(16, 8);
+    Border: LightNotesTheme.DividerBottom;
+}
+
+style CaptureFieldStyle {
+    Height: 38;
+    MinWidth: 0;
+    MainShrink: 1;
+    Padding: Insets.Symmetric(11, 7);
+    Background: LightNotesTheme.Field;
+    TextColor: LightNotesTheme.Ink;
+    MainGrow: 1;
+    Border: LightNotesTheme.FieldOutline;
+    when FocusVisible {
+        Background: LightNotesTheme.Field;
+        FocusRing: LightNotesTheme.KeyboardFocus;
+    }
+}
+
+style PrimaryActionStyle {
+    Width: 78;
+    Height: 38;
+    Padding: Insets.Symmetric(14, 7);
+    Background: LightNotesTheme.Accent;
+    TextColor: LightNotesTheme.InverseInk;
+    when Pressed {
+        Background: LightNotesTheme.AccentPressed;
+    }
+    when FocusVisible {
+        Background: LightNotesTheme.Accent;
+        FocusRing: LightNotesTheme.KeyboardFocus;
+    }
+    when Disabled {
+        Background: LightNotesTheme.Divider;
+        TextColor: LightNotesTheme.MutedInk;
+    }
+}
+
+public component CaptureBar(NoteWorkspace model) {
+    <Row style={CaptureBarStyle with { Padding: model.IsWide ? Insets.Symmetric(24, 8) : Insets.Symmetric(16, 8); }} name="notes.capture-bar">
+        <TextField session={model.Capture} focusTarget={model.CaptureFocus} label="Capture a link or thought" style={CaptureFieldStyle with { Enabled: model.CanEdit; }} name="notes.capture" />
+        <Button onInvoke={() => model.CaptureCommand.TryExecute()} style={PrimaryActionStyle with { Enabled: model.CaptureCommand.IsEnabled; }} name="notes.capture-action">Add</Button>
+    </Row>
+}

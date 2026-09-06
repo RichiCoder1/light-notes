@@ -8,8 +8,10 @@ Light Notes is an independent first-party consumer of [Lucent](https://github.co
 
 Lucent's [dependency ledger](https://github.com/RichiCoder1/lucent/blob/b69ade6/CREDITS.md) identifies SkiaSharp/HarfBuzzSharp, SDL3-CS/SDL3, .NET, the VC runtime, Microsoft.Extensions.Hosting, and build-only Roslyn dependencies. Package targets retain runtime notices in published output. The app uses installed system fonts and ships no additional artwork or fonts.
 
-The initial composition uses Lucent's standard control theme. Product design follows the [links-and-notes experience](https://github.com/RichiCoder1/lucent/tree/b69ade6/docs/design/links-and-notes); this initial startup screen is not the finished inbox/editor.
+The composition uses Lucent's standard control theme with application-owned presentation tokens. Product design follows the [links-and-notes experience](https://github.com/RichiCoder1/lucent/tree/b69ade6/docs/design/links-and-notes); the daily-use workflow continues after the responsive-shell review.
 
 ## Test tooling
 
 [FlaUI.UIA3 5.0.0](https://github.com/FlaUI/FlaUI) (MIT) drives the optional published desktop checks through Windows UI Automation. It follows Lucent's existing test-driver choice and is not shipped with Light Notes. MSTest 4.4 supplies the maintained Microsoft test runner.
+
+[Axe.Windows 2.4.2](https://github.com/microsoft/axe-windows) (MIT) supplies targeted automated accessibility rule scans in the opt-in desktop test suite. It is not shipped with the app.

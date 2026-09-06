@@ -1,0 +1,194 @@
+namespace LightNotes;
+style EditorPaneStyle {
+    CrossAlignment: LayoutAlignment.Stretch;
+    Background: LightNotesTheme.Canvas;
+    MainGrow: 1;
+    MainShrink: 1;
+    MinWidth: 0;
+    Clip: true;
+    Padding: Insets.Symmetric(24, 22);
+}
+
+style EditorContentStyle {
+    CrossAlignment: LayoutAlignment.Stretch;
+    MainGrow: 1;
+    MainShrink: 1;
+    Background: LightNotesTheme.Canvas;
+    MinWidth: 0;
+    MinHeight: 0;
+    Spacing: 10;
+    Clip: true;
+}
+
+style CompactEditorHeaderStyle {
+    Height: 34;
+    Background: LightNotesTheme.Canvas;
+    Axis: LayoutAxis.Row;
+    CrossAlignment: LayoutAlignment.Center;
+    Spacing: 12;
+}
+
+style BackActionStyle {
+    Height: 32;
+    Padding: Insets.Symmetric(8, 5);
+    Background: LightNotesTheme.Canvas;
+    TextColor: LightNotesTheme.AccentInk;
+    when Pressed {
+        Background: LightNotesTheme.Hover;
+    }
+    when FocusVisible {
+        Background: LightNotesTheme.Canvas;
+        FocusRing: LightNotesTheme.KeyboardFocus;
+    }
+}
+
+style TitleFieldStyle {
+    Height: 46;
+    MinWidth: 0;
+    MainShrink: 1;
+    Padding: Insets.Symmetric(10, 9);
+    Background: LightNotesTheme.Field;
+    TextColor: LightNotesTheme.Ink;
+    FontSize: 19;
+    Border: LightNotesTheme.FieldOutline;
+    when FocusVisible {
+        Background: LightNotesTheme.Field;
+        FocusRing: LightNotesTheme.KeyboardFocus;
+    }
+}
+
+style UrlFieldStyle {
+    Height: 38;
+    MinWidth: 0;
+    MainShrink: 1;
+    Padding: Insets.Symmetric(10, 7);
+    Background: LightNotesTheme.Field;
+    TextColor: LightNotesTheme.MutedInk;
+    FontSize: 13;
+    Border: LightNotesTheme.FieldOutline;
+    when FocusVisible {
+        Background: LightNotesTheme.Field;
+        FocusRing: LightNotesTheme.KeyboardFocus;
+    }
+}
+
+style BodyFieldStyle {
+    Height: 160;
+    MinWidth: 0;
+    MainGrow: 1;
+    MainShrink: 1;
+    Padding: Insets.Symmetric(14, 14);
+    Background: LightNotesTheme.Field;
+    TextColor: LightNotesTheme.Ink;
+    FontSize: 15;
+    TextWrap: TextWrap.WordWithGraphemeFallback;
+    Clip: true;
+    Border: LightNotesTheme.FieldOutline;
+    when FocusVisible {
+        Background: LightNotesTheme.Field;
+        FocusRing: LightNotesTheme.KeyboardFocus;
+    }
+}
+
+style FieldLabelStyle {
+    FontSize: 12;
+    TextColor: LightNotesTheme.MutedInk;
+    Height: 18;
+}
+
+style EditorFooterStyle {
+    Height: 38;
+    Background: LightNotesTheme.Canvas;
+    Axis: LayoutAxis.Row;
+    CrossAlignment: LayoutAlignment.Center;
+    Spacing: 8;
+}
+
+style SaveStatusStyle {
+    MainGrow: 1;
+    MainShrink: 1;
+    MinWidth: 0;
+    FontSize: 12;
+    TextColor: LightNotesTheme.MutedInk;
+    MaxLines: 1;
+    Overflow: TextOverflow.Ellipsis;
+}
+
+style QuietActionStyle {
+    Height: 32;
+    Padding: Insets.Symmetric(10, 6);
+    Background: LightNotesTheme.Canvas;
+    TextColor: LightNotesTheme.AccentInk;
+    when Pressed {
+        Background: LightNotesTheme.Hover;
+    }
+    when FocusVisible {
+        Background: LightNotesTheme.Canvas;
+        FocusRing: LightNotesTheme.KeyboardFocus;
+    }
+    when Disabled {
+        TextColor: LightNotesTheme.MutedInk;
+    }
+}
+
+style ErrorStripStyle {
+    MinHeight: 54;
+    Padding: Insets.Symmetric(12, 9);
+    Spacing: 8;
+    Background: LightNotesTheme.ErrorSurface;
+    TextColor: LightNotesTheme.ErrorInk;
+    Border: LightNotesTheme.ErrorOutline;
+}
+
+style EmptyEditorStyle {
+    MainGrow: 1;
+    Padding: Insets.Symmetric(12, 42);
+    Spacing: 10;
+}
+
+style EmptyEditorHeadingStyle {
+    FontSize: 22;
+    TextColor: LightNotesTheme.Ink;
+}
+
+style EmptyEditorBodyStyle {
+    FontSize: 13;
+    TextColor: LightNotesTheme.MutedInk;
+    TextWrap: TextWrap.WordWithGraphemeFallback;
+    MaxLines: 3;
+    Overflow: TextOverflow.Ellipsis;
+}
+
+public component EditorPane(NoteWorkspace model) {
+    <Column style={EditorPaneStyle with { Padding: model.IsWide ? Insets.Symmetric(24, 22) : Insets.Symmetric(16, 18); Participation: !model.IsCompact || model.ShowEditor ? ElementParticipation.Visible : ElementParticipation.Collapsed; }} name="notes.editor">
+        <Column style={EditorContentStyle with { Participation: model.Selected.Value is not null ? ElementParticipation.Visible : ElementParticipation.Collapsed; }} name="notes.editor-content">
+            <Row style={CompactEditorHeaderStyle with { Participation: model.IsCompact ? ElementParticipation.Visible : ElementParticipation.Collapsed; }} name="notes.compact-editor-header">
+                <Button onInvoke={() => model.BackToCollection()} style={BackActionStyle} name="notes.back">Back to collection</Button>
+                <Status content={() => model.StatusText} style={SaveStatusStyle} name="notes.compact-status" />
+            </Row>
+            <TextField session={model.Title} focusTarget={model.TitleFocus} label="Title" style={TitleFieldStyle with { Enabled: model.CanEdit; }} name="notes.title" />
+            <Text style={FieldLabelStyle}>Web address (optional)</Text>
+            <TextField session={model.Url} label="Web address" style={UrlFieldStyle with { Enabled: model.CanEdit; }} name="notes.url" />
+            <Text style={FieldLabelStyle}>Notes</Text>
+            <TextArea session={model.Body} label="Notes" style={BodyFieldStyle with { Enabled: model.CanEdit; }} name="notes.body" />
+            if (model.HasError) {
+                <Column style={ErrorStripStyle} name="notes.editor-error">
+                    <Text>Couldn’t save this item</Text>
+                    <Text content={() => model.ErrorMessage ?? "Your draft is still here."} style={Style.Empty.FontSize(12).TextWrap(TextWrap.WordWithGraphemeFallback).MaxLines(2).TextOverflow(TextOverflow.Ellipsis)} name="notes.editor-error-detail" />
+                    <Button onInvoke={() => model.RetryCommand.TryExecute()} style={QuietActionStyle with { Enabled: model.RetryCommand.IsEnabled; }} name="notes.editor-retry">Retry</Button>
+                </Column>
+            }
+            <Row style={EditorFooterStyle} name="notes.editor-actions">
+                <Status content={() => model.StatusText} style={SaveStatusStyle with { Participation: model.IsCompact ? ElementParticipation.Collapsed : ElementParticipation.Visible; }} name="notes.status" />
+                <Button onInvoke={() => model.SaveCommand.TryExecute()} style={QuietActionStyle with { Enabled: model.SaveCommand.IsEnabled; }} name="notes.save">Save now</Button>
+                <Button onInvoke={() => model.ArchiveCommand.TryExecute()} style={QuietActionStyle with { Enabled: model.ArchiveCommand.IsEnabled; Participation: model.ShowArchived.Value ? ElementParticipation.Visible : ElementParticipation.Collapsed; }} name="notes.restore">Restore</Button>
+                <Button onInvoke={() => model.ArchiveCommand.TryExecute()} style={QuietActionStyle with { Enabled: model.ArchiveCommand.IsEnabled; Participation: !model.ShowArchived.Value ? ElementParticipation.Visible : ElementParticipation.Collapsed; }} name="notes.archive">Archive</Button>
+                <Button onInvoke={() => model.BackupCommand.TryExecute()} style={QuietActionStyle with { Enabled: model.BackupCommand.IsEnabled; }} name="notes.backup">Backup</Button>
+            </Row>
+        </Column>
+        <Column style={EmptyEditorStyle with { Participation: model.Selected.Value is null ? ElementParticipation.Visible : ElementParticipation.Collapsed; }} name="notes.editor-empty">
+            <Text style={EmptyEditorHeadingStyle}>Select an item</Text>
+            <Text style={EmptyEditorBodyStyle}>Choose a saved note from the list, or capture a link or thought above.</Text>
+        </Column>
+    </Column>
+}

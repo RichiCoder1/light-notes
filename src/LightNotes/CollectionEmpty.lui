@@ -1,0 +1,46 @@
+namespace LightNotes;
+style EmptyCollectionPanelStyle {
+    MainGrow: 1;
+    Padding: Insets.Symmetric(8, 30);
+    Spacing: 10;
+    Background: LightNotesTheme.Surface;
+}
+
+style EmptyCollectionHeadingStyle {
+    FontSize: 18;
+    TextColor: LightNotesTheme.Ink;
+    TextWrap: TextWrap.WordWithGraphemeFallback;
+    MaxLines: 2;
+    Overflow: TextOverflow.Ellipsis;
+}
+
+style EmptyCollectionBodyStyle {
+    FontSize: 13;
+    TextColor: LightNotesTheme.MutedInk;
+    TextWrap: TextWrap.WordWithGraphemeFallback;
+    MaxLines: 3;
+    Overflow: TextOverflow.Ellipsis;
+}
+
+style EmptyCollectionActionStyle {
+    Height: 30;
+    Padding: Insets.Symmetric(8, 5);
+    Background: LightNotesTheme.Surface;
+    TextColor: LightNotesTheme.AccentInk;
+    when Pressed {
+        Background: LightNotesTheme.Hover;
+    }
+    when FocusVisible {
+        FocusRing: LightNotesTheme.KeyboardFocus;
+    }
+}
+
+public component CollectionEmpty(NoteWorkspace model) {
+    <Column style={EmptyCollectionPanelStyle with { Participation: model.IsReady && model.VisibleItems.Count == 0 ? ElementParticipation.Visible : ElementParticipation.Collapsed; }} name="notes.collection-empty">
+        <Text content={() => NotePresentation.EmptyHeading(model)} style={EmptyCollectionHeadingStyle} name="notes.collection-empty-title" />
+        <Text content={() => NotePresentation.EmptyGuidance(model)} style={EmptyCollectionBodyStyle} name="notes.collection-empty-guidance" />
+        if (model.Search.Text.Length != 0) {
+            <Button onInvoke={() => model.ClearSearch()} style={EmptyCollectionActionStyle} name="notes.collection-empty-clear">Clear search</Button>
+        }
+    </Column>
+}

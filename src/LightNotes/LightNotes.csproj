@@ -9,6 +9,7 @@
     <RootNamespace>LightNotes</RootNamespace>
   </PropertyGroup>
   <ItemGroup>
+    <InternalsVisibleTo Include="LightNotes.Tests" />
     <ProjectReference Include="../LightNotes.Storage/LightNotes.Storage.csproj" />
     <PackageReference Include="Lucent.Platform.Windows" Version="[$(LucentVersion)]" />
     <PackageReference Include="Lucent.Hosting" Version="[$(LucentVersion)]" />

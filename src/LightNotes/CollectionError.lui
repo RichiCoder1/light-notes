@@ -1,0 +1,42 @@
+namespace LightNotes;
+style CollectionErrorPanelStyle {
+    MainGrow: 1;
+    Padding: Insets.Symmetric(8, 30);
+    Spacing: 10;
+    Background: LightNotesTheme.ErrorSurface;
+    Border: LightNotesTheme.ErrorOutline;
+}
+
+style CollectionErrorHeadingStyle {
+    FontSize: 18;
+    TextColor: LightNotesTheme.ErrorInk;
+    TextWrap: TextWrap.WordWithGraphemeFallback;
+    MaxLines: 2;
+    Overflow: TextOverflow.Ellipsis;
+}
+
+style CollectionErrorBodyStyle {
+    FontSize: 13;
+    TextColor: LightNotesTheme.ErrorInk;
+    TextWrap: TextWrap.WordWithGraphemeFallback;
+    MaxLines: 3;
+    Overflow: TextOverflow.Ellipsis;
+}
+
+style CollectionErrorActionStyle {
+    Height: 30;
+    Padding: Insets.Symmetric(8, 5);
+    Background: LightNotesTheme.ErrorSurface;
+    TextColor: LightNotesTheme.ErrorInk;
+    when FocusVisible {
+        FocusRing: LightNotesTheme.KeyboardFocus;
+    }
+}
+
+public component CollectionError(NoteWorkspace model) {
+    <Column style={CollectionErrorPanelStyle with { Participation: !model.IsReady && model.HasError ? ElementParticipation.Visible : ElementParticipation.Collapsed; }} name="notes.collection-error">
+        <Text style={CollectionErrorHeadingStyle}>Couldn’t open your notes</Text>
+        <Text content={() => model.ErrorMessage ?? "The local notes store is unavailable."} style={CollectionErrorBodyStyle} name="notes.collection-error-detail" />
+        <Button onInvoke={() => model.RetryCommand.TryExecute()} style={CollectionErrorActionStyle with { Enabled: model.RetryCommand.IsEnabled; }} name="notes.collection-retry">Retry</Button>
+    </Column>
+}

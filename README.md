@@ -2,7 +2,7 @@
 
 A small Windows desktop home for links and plain-text notes, built with Lucent and authored in `.lui`.
 
-Capture a link or thought, select a saved item, edit its title, URL and note, then save or archive it. Records live in a local SQLite database. The note body supports multiple lines, wrapping, selection, clipboard, undo/redo and scrolling through Lucent’s reusable TextArea. The complete responsive daily-use shell is the next work.
+Capture a link or thought, select a saved item, edit its title, URL and note, then save or archive it. Records live in a local SQLite database. The note body supports multiple lines, wrapping, selection, clipboard, undo/redo and scrolling through Lucent’s reusable TextArea. The responsive shell adapts from navigation/list/editor to a rail and then a single-pane collection/editor. The next work completes the daily-use workflow. See the [manual review guide](docs/MANUAL-REVIEW.md) for an isolated sample workspace and framework/`.lui` review notes.
 
 ## Run locally
 
@@ -35,7 +35,7 @@ The owner and coding agents on the owner's machine are the primary development a
 
 Data lives in `%LOCALAPPDATA%/LightNotes/notes.db`. Set `LIGHT_NOTES_DATA_DIRECTORY` to use a separate directory for development or automation. Tests always use temporary databases. Never commit a personal database or export.
 
-Ctrl+N captures the current capture field; Ctrl+S saves the selected draft. Selecting another item or closing saves the current draft first. A failed save keeps the draft and window available for retry. A successful save means the database transaction committed; it does not imply off-device backup or protection against disk failure.
+Ctrl+N focuses capture; Ctrl+F focuses search; Ctrl+S saves the selected draft. Use Add to capture the entered text. Selecting another item or closing saves the current draft first. A failed save keeps the draft and window available for retry. A successful save means the database transaction committed; it does not imply off-device backup or protection against disk failure.
 
 The Backup button creates a consistent SQLite copy under the data directory's `Backups` folder. For a portable JSON export or an explicitly located backup, close the app and run:
 
@@ -48,7 +48,7 @@ Use a new destination filename. Schema migration, format and recovery details ar
 
 ## Tests
 
-Run `./tools/Test.ps1` for temporary-database and workspace contracts. After changing package dependencies, use `-UpdateLock` once, then commit the lock files. `./tools/Build.ps1 -Publish` produces the NativeAOT application. Published desktop interaction tests run separately in an interactive Windows session.
+Run `./tools/Test.ps1` for temporary-database, workspace and real `.lui` shell geometry/state contracts. After changing package dependencies, use `-UpdateLock` once, then commit the lock files. `./tools/Build.ps1 -Publish` produces the NativeAOT application. Published desktop interaction tests run separately in an interactive Windows session.
 
 ### Optional published desktop test
 
@@ -56,7 +56,10 @@ The published persistence test is opt-in and is not included in `./tools/Test.ps
 
 ```powershell
 $env:LIGHT_NOTES_PUBLISHED = (Resolve-Path ./artifacts/publish/LightNotes.exe).Path
-dotnet test ./tests/LightNotes.Desktop.Tests/LightNotes.Desktop.Tests.csproj -c Release --no-restore
+dotnet restore ./tests/LightNotes.Desktop.Tests/LightNotes.Desktop.Tests.csproj --locked-mode
+dotnet test --project ./tests/LightNotes.Desktop.Tests/LightNotes.Desktop.Tests.csproj -c Release --no-restore
 ```
 
 The test writes its review screenshot to `artifacts/desktop/light-notes-persistence.png`; set `LIGHT_NOTES_DESKTOP_ARTIFACTS` to override that location.
+
+The desktop suite also checks responsive pane replacement, minimum client size, draft continuity, shortcut/Back focus and targeted Axe.Windows rules. It takes foreground focus and should run only while the PC is available. Offline shell captures can be exported during managed tests by setting `LIGHT_NOTES_REVIEW_ARTIFACTS`; these are renderer fixtures, not native desktop screenshots.

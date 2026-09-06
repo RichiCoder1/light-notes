@@ -6,6 +6,7 @@
     <SelfContained>true</SelfContained>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="../../tools/LightNotes.Review/ReviewSamples.cs" Link="ReviewSamples.cs" />
     <ProjectReference Include="../../src/LightNotes/LightNotes.csproj" />
   </ItemGroup>
 </Project>

@@ -1,0 +1,31 @@
+namespace LightNotes;
+style LoadingPanelStyle {
+    MainGrow: 1;
+    Padding: Insets.Symmetric(8, 30);
+    Spacing: 10;
+    Background: LightNotesTheme.Surface;
+}
+
+style LoadingHeadingStyle {
+    FontSize: 18;
+    TextColor: LightNotesTheme.Ink;
+    TextWrap: TextWrap.WordWithGraphemeFallback;
+    MaxLines: 2;
+    Overflow: TextOverflow.Ellipsis;
+}
+
+style LoadingRowStyle {
+    Height: 68;
+    Padding: Insets.Symmetric(12, 12);
+    Background: LightNotesTheme.Hover;
+    TextColor: LightNotesTheme.MutedInk;
+}
+
+public component CollectionLoading(NoteWorkspace model) {
+    <Column style={LoadingPanelStyle with { Participation: !model.IsReady && !model.HasError ? ElementParticipation.Visible : ElementParticipation.Collapsed; }} name="notes.collection-loading">
+        <Text style={LoadingHeadingStyle}>Opening your notes…</Text>
+        <Text style={LoadingRowStyle}>Loading saved items</Text>
+        <Text style={LoadingRowStyle}>Preparing your inbox</Text>
+        <Text style={LoadingRowStyle}>Restoring your last workspace</Text>
+    </Column>
+}

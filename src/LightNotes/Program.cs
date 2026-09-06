@@ -43,9 +43,17 @@ internal static class Program
             );
             return LucentApplication
                 .CreateBuilder()
-                .UseWindows()
+                .UseWindows(
+                    new WindowsWindowOptions
+                    {
+                        Width = 1180,
+                        Height = 760,
+                        MinimumWidth = 480,
+                        MinimumHeight = 520,
+                    }
+                )
                 .SetTitle("Light Notes")
-                .SetTheme(_ => ControlThemes.Light)
+                .SetTheme(_ => LightNotesTheme.Create())
                 .Build()
                 .Run(lifecycle);
         }

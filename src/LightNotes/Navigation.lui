@@ -1,0 +1,61 @@
+namespace LightNotes;
+style NavigationStyle {
+    Background: LightNotesTheme.Navigation;
+    TextColor: LightNotesTheme.InverseInk;
+    MainShrink: 0;
+    Padding: Insets.Symmetric(10, 14);
+    Spacing: 8;
+    Clip: true;
+}
+
+style NavigationBrandStyle {
+    FontSize: 17;
+    TextColor: LightNotesTheme.InverseInk;
+    Height: 34;
+    MaxLines: 1;
+    Overflow: TextOverflow.Ellipsis;
+}
+
+style NavigationItemStyle {
+    Height: 46;
+    Padding: Insets.Symmetric(4, 8);
+    Background: LightNotesTheme.Navigation;
+    TextColor: LightNotesTheme.InverseInk;
+    FontSize: 12;
+    TextWrap: TextWrap.WordWithGraphemeFallback;
+    MaxLines: 2;
+    Overflow: TextOverflow.Ellipsis;
+    when Selected {
+        Background: LightNotesTheme.NavigationSelected;
+    }
+    when FocusVisible {
+        Background: LightNotesTheme.NavigationSelected;
+        FocusRing: LightNotesTheme.KeyboardFocusOnDark;
+    }
+    when Pressed {
+        Background: LightNotesTheme.NavigationSelected;
+    }
+}
+
+style NavigationSpacerStyle {
+    MainGrow: 1;
+    Background: LightNotesTheme.Navigation;
+}
+
+style NavigationHintStyle {
+    FontSize: 11;
+    TextColor: LightNotesTheme.InverseInk;
+    TextWrap: TextWrap.WordWithGraphemeFallback;
+    MaxLines: 2;
+    Overflow: TextOverflow.Ellipsis;
+}
+
+public component Navigation(NoteWorkspace model) {
+    <Column style={NavigationStyle with { Width: model.IsWide ? 184f : 64f; Padding: model.IsWide ? Insets.Symmetric(12, 16) : Insets.Symmetric(6, 12); Participation: model.IsCompact ? ElementParticipation.Collapsed : ElementParticipation.Visible; }} name="notes.navigation">
+        <Text style={NavigationBrandStyle with { Participation: model.IsWide ? ElementParticipation.Visible : ElementParticipation.Collapsed; }}>Light Notes</Text>
+        <Selectable content={() => model.IsWide ? "Inbox  " + model.InboxCount : "Inbox"} selected={() => !model.ShowArchived.Value} onSelect={() => model.ShowInbox()} style={NavigationItemStyle} name="notes.navigation-inbox" />
+        <Selectable content={() => model.IsWide ? "Archive  " + model.ArchiveCount : "Archive"} selected={() => model.ShowArchived.Value} onSelect={() => model.ShowArchive()} style={NavigationItemStyle} name="notes.navigation-archive" />
+        <Column style={NavigationSpacerStyle} />
+        <Text style={NavigationHintStyle with { Participation: model.IsWide ? ElementParticipation.Visible : ElementParticipation.Collapsed; }}>Ctrl+N to capture</Text>
+    </Column>
+}
