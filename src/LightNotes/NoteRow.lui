@@ -73,7 +73,7 @@ public component NoteRow(NoteWorkspace model, Func<NoteRecord> item) {
         menuOpen = open;
     }
     <ContextMenu menu={() => Components.NoteMenu(model, item())} onOpenChanged={MenuOpenChanged}>
-        <Selectable label={() => NotePresentation.RowLabel(item())} selected={() => model.Selected.Value != null && model.Selected.Value.Id == item().Id} onSelect={() => model.Select(item().Id)} style={NoteRowStyle with { FocusRing: menuOpen ? LightNotesTheme.KeyboardFocus.Fallback : FocusRing.None; }} name="notes.row">
+        <Selectable label={() => NotePresentation.RowLabel(item())} selected={() => model.Selected.Value != null && model.Selected.Value.Id == item().Id} onSelect={() => model.Select(item().Id)} style={NoteRowStyle with { FocusRing: menuOpen ? LightNotesTheme.KeyboardFocus : FocusRing.None; }} name="notes.row">
             <Text style={NoteRowTitleStyle}>{NotePresentation.RowTitle(item())}</Text>
             <Text style={NoteRowMetadataStyle}>{NotePresentation.RowMetadata(item())}</Text>
         </Selectable>

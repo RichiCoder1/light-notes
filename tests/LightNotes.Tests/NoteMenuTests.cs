@@ -74,6 +74,31 @@ public sealed partial class ShellPresentationTests
                 ),
             "The .lui menu-open state did not show a distinct target outline."
         );
+        var themedRing = FocusRing.Inset(Color.Parse("#A020F0"), 3);
+        theme.Theme = theme.Theme.Set(LightNotesTheme.KeyboardFocus, themedRing);
+        var themedScene = Scenario(
+            fixture,
+            composition,
+            renderer,
+            model,
+            "note-menu-themed",
+            1180,
+            760,
+            1,
+            export: false
+        );
+        var outline = SceneNodes(themedScene.Nodes)
+            .OfType<PaintSceneNode>()
+            .Single(node =>
+                node.Identity.Kind == SceneNodeKind.FocusRing
+                && node.Identity.Element.ElementId == row.Identity.ElementId
+            );
+        Assert.AreEqual(
+            themedRing.Brush,
+            outline.Brush,
+            "The open menu target must resolve its token through the active theme."
+        );
+        Assert.AreEqual(Insets.Uniform(themedRing.Thickness), outline.InsetWidths);
         using (request)
         {
             var popup = request.CreateComposition();

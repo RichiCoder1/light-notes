@@ -4,7 +4,7 @@
     "rollForward": "latestPatch"
   },
   "msbuild-sdks": {
-    "Lucent.Lui.Sdk": "0.3.0-dev.28.1",
+    "Lucent.Lui.Sdk": "0.3.0-dev.29.1",
     "MSTest.Sdk": "4.4.0"
   },
   "test": {
