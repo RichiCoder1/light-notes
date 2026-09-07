@@ -220,7 +220,11 @@ public component EditorPane(NoteWorkspace model) {
             }
             <Row style={EditorFooterStyle} name="notes.editor-actions">
                 <Status content={() => model.StatusText} style={SaveStatusStyle with { Participation: model.IsCompact ? ElementParticipation.Collapsed : ElementParticipation.Visible; }} name="notes.status" />
-                <Button onInvoke={() => model.SaveCommand.TryExecute()} style={QuietActionStyle with { Enabled: model.SaveCommand.IsEnabled; }} name="notes.save">Save now</Button>
+                if (model.HasValidationError && model.HasRecoveryDraft) {
+                    <Button onInvoke={() => model.DiscardDraftCommand.TryExecute()} style={QuietActionStyle with { Enabled: model.DiscardDraftCommand.IsEnabled; }} name="notes.discard-draft">Discard draft</Button>
+                } else {
+                    <Button onInvoke={() => model.SaveCommand.TryExecute()} style={QuietActionStyle with { Enabled: model.SaveCommand.IsEnabled; }} name="notes.save">Save now</Button>
+                }
                 <Button onInvoke={() => model.ArchiveCommand.TryExecute()} style={QuietActionStyle with { Enabled: model.ArchiveCommand.IsEnabled; Participation: model.ShowArchived.Value ? ElementParticipation.Visible : ElementParticipation.Collapsed; }} name="notes.restore">Restore</Button>
                 <Button onInvoke={() => model.ArchiveCommand.TryExecute()} style={QuietActionStyle with { Enabled: model.ArchiveCommand.IsEnabled; Participation: !model.ShowArchived.Value ? ElementParticipation.Visible : ElementParticipation.Collapsed; }} name="notes.archive">Archive</Button>
                 <Button onInvoke={() => model.BackupCommand.TryExecute()} style={QuietActionStyle with { Enabled: model.BackupCommand.IsEnabled; }} name="notes.backup">Backup</Button>

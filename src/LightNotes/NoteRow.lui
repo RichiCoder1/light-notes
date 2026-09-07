@@ -68,13 +68,14 @@ style NoteRowMetadataStyle {
 }
 
 public component NoteRow(NoteWorkspace model, Func<NoteRecord> item) {
-    <Selectable
-        label={() => NotePresentation.RowLabel(item())}
-        selected={() => model.Selected.Value != null && model.Selected.Value.Id == item().Id}
-        onSelect={() => model.Select(item().Id)}
-        style={NoteRowStyle}
-        name="notes.row">
-        <Text style={NoteRowTitleStyle}>{NotePresentation.RowTitle(item())}</Text>
-        <Text style={NoteRowMetadataStyle}>{NotePresentation.RowMetadata(item())}</Text>
-    </Selectable>
+    bool menuOpen = false;
+    void MenuOpenChanged(bool open) {
+        menuOpen = open;
+    }
+    <ContextMenu menu={() => Components.NoteMenu(model, item())} onOpenChanged={MenuOpenChanged}>
+        <Selectable label={() => NotePresentation.RowLabel(item())} selected={() => model.Selected.Value != null && model.Selected.Value.Id == item().Id} onSelect={() => model.Select(item().Id)} style={NoteRowStyle with { FocusRing: menuOpen ? LightNotesTheme.KeyboardFocus.Fallback : FocusRing.None; }} name="notes.row">
+            <Text style={NoteRowTitleStyle}>{NotePresentation.RowTitle(item())}</Text>
+            <Text style={NoteRowMetadataStyle}>{NotePresentation.RowMetadata(item())}</Text>
+        </Selectable>
+    </ContextMenu>
 }

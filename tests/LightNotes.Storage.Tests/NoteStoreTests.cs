@@ -7,6 +7,113 @@ namespace LightNotes.Storage.Tests;
 public sealed class NoteStoreTests
 {
     [TestMethod]
+    public async Task RecoveryDraftSurvivesRestartSeparatelyFromLastValidNote()
+    {
+        using var temp = new TempDirectory();
+        var id = Guid.NewGuid();
+
+        await using (var store = await NoteStore.OpenAsync(temp.DatabasePath))
+        {
+            var saved = await store.SaveAsync(
+                new NoteDraft(id, NoteKind.Link, "Valid title", "https://example.com", "valid", 0)
+            );
+            await store.SaveRecoveryDraftAsync(
+                new NoteDraft(id, NoteKind.Link, "", "https://", "recover me", saved.Revision)
+            );
+            Assert.IsTrue(await store.PrepareCloseAsync());
+        }
+
+        await using var reopened = await NoteStore.OpenAsync(temp.DatabasePath);
+        Assert.AreEqual("Valid title", (await reopened.GetAsync(id))?.Title);
+        var recovery = (await reopened.ListRecoveryDraftsAsync()).Single();
+        Assert.AreEqual(id, recovery.Id);
+        Assert.AreEqual("", recovery.Title);
+        Assert.AreEqual("https://", recovery.Url);
+        Assert.AreEqual("recover me", recovery.Body);
+        Assert.AreEqual(1L, recovery.BaseRevision);
+    }
+
+    [TestMethod]
+    public async Task SuccessfulValidSaveAtomicallyClearsRecoveryDraft()
+    {
+        using var temp = new TempDirectory();
+        await using var store = await NoteStore.OpenAsync(temp.DatabasePath);
+        var id = Guid.NewGuid();
+        var saved = await store.SaveAsync(
+            new NoteDraft(id, NoteKind.Note, "Valid", null, "one", 0)
+        );
+        await store.SaveRecoveryDraftAsync(
+            new NoteDraft(id, NoteKind.Note, "", null, "unfinished", saved.Revision)
+        );
+
+        await store.SaveAndClearRecoveryAsync(
+            new NoteDraft(id, NoteKind.Note, "Corrected", null, "finished", saved.Revision)
+        );
+
+        Assert.AreEqual(0, (await store.ListRecoveryDraftsAsync()).Count);
+        Assert.AreEqual("Corrected", (await store.GetAsync(id))?.Title);
+    }
+
+    [TestMethod]
+    public async Task VersionOneDatabaseMigratesWithoutLosingNotes()
+    {
+        using var temp = new TempDirectory();
+        var id = Guid.NewGuid();
+        await using (var store = await NoteStore.OpenAsync(temp.DatabasePath))
+        {
+            await store.SaveAsync(
+                new NoteDraft(id, NoteKind.Note, "Before migration", null, "kept", 0)
+            );
+        }
+        using (
+            var connection = new SqliteConnection($"Data Source={temp.DatabasePath};Pooling=False")
+        )
+        {
+            connection.Open();
+            using var command = connection.CreateCommand();
+            command.CommandText = "DROP TABLE recovery_drafts; PRAGMA user_version = 1;";
+            command.ExecuteNonQuery();
+        }
+
+        await using (var migrated = await NoteStore.OpenAsync(temp.DatabasePath))
+        {
+            Assert.AreEqual("Before migration", (await migrated.GetAsync(id))?.Title);
+            Assert.AreEqual(0, (await migrated.ListRecoveryDraftsAsync()).Count);
+        }
+    }
+
+    [TestMethod]
+    public async Task FailedRecoveryWriteDeclinesCloseUntilOriginalSnapshotRetries()
+    {
+        using var temp = new TempDirectory();
+        var id = Guid.NewGuid();
+        long revision;
+        await using (var seed = await NoteStore.OpenAsync(temp.DatabasePath))
+            revision = (
+                await seed.SaveAsync(new NoteDraft(id, NoteKind.Note, "Valid", null, "saved", 0))
+            ).Revision;
+
+        var injector = new FailFirstWrite();
+        await using (var store = await NoteStore.OpenAsync(temp.DatabasePath, injector))
+        {
+            await AssertThrowsAsync<InjectedStorageException>(() =>
+                store.SaveRecoveryDraftAsync(
+                    new NoteDraft(id, NoteKind.Note, "", null, "recover", revision)
+                )
+            );
+            Assert.IsFalse(await store.PrepareCloseAsync());
+
+            var retry = await store.RetryFailedWritesAsync();
+            Assert.AreEqual(1, retry.Succeeded);
+            Assert.IsTrue(await store.PrepareCloseAsync());
+        }
+
+        await using var reopened = await NoteStore.OpenAsync(temp.DatabasePath);
+        Assert.AreEqual("recover", (await reopened.ListRecoveryDraftsAsync()).Single().Body);
+        Assert.AreEqual("Valid", (await reopened.GetAsync(id))?.Title);
+    }
+
+    [TestMethod]
     public async Task CreateUpdateArchiveAndReopenPreservesRecords()
     {
         using var temp = new TempDirectory();
@@ -231,14 +338,14 @@ public sealed class NoteStoreTests
         {
             connection.Open();
             using var command = connection.CreateCommand();
-            command.CommandText = "PRAGMA user_version = 2;";
+            command.CommandText = "PRAGMA user_version = 3;";
             command.ExecuteNonQuery();
         }
 
         var exception = await AssertThrowsAsync<UnsupportedSchemaVersionException>(() =>
             NoteStore.OpenAsync(temp.DatabasePath)
         );
-        Assert.AreEqual(2, exception.ActualVersion);
+        Assert.AreEqual(3, exception.ActualVersion);
         Assert.AreEqual(NoteStore.SchemaVersion, exception.SupportedVersion);
     }
 
@@ -310,6 +417,50 @@ public sealed class NoteStoreTests
     }
 
     [TestMethod]
+    public async Task RestoreMigratesVersionOneBackupWithoutChangingItsSource()
+    {
+        using var temp = new TempDirectory();
+        var id = Guid.NewGuid();
+        var sourcePath = Path.Combine(temp.Path, "version-one.db");
+        var destinationPath = Path.Combine(temp.Path, "restored", "notes.db");
+        await using (var seed = await NoteStore.OpenAsync(sourcePath))
+            await seed.SaveAsync(
+                new NoteDraft(id, NoteKind.Note, "Version one backup", null, "kept", 0)
+            );
+        using (var connection = new SqliteConnection($"Data Source={sourcePath};Pooling=False"))
+        {
+            connection.Open();
+            using var command = connection.CreateCommand();
+            command.CommandText = "DROP TABLE recovery_drafts; PRAGMA user_version = 1;";
+            command.ExecuteNonQuery();
+        }
+        var sourceBytes = await File.ReadAllBytesAsync(sourcePath);
+
+        await NoteStore.RestoreAsync(sourcePath, destinationPath);
+
+        CollectionAssert.AreEqual(sourceBytes, await File.ReadAllBytesAsync(sourcePath));
+        using (
+            var source = new SqliteConnection(
+                $"Data Source={sourcePath};Mode=ReadOnly;Pooling=False"
+            )
+        )
+        {
+            source.Open();
+            using var version = source.CreateCommand();
+            version.CommandText = "PRAGMA user_version;";
+            Assert.AreEqual(1L, version.ExecuteScalar());
+            using var table = source.CreateCommand();
+            table.CommandText =
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'recovery_drafts';";
+            Assert.AreEqual(0L, table.ExecuteScalar());
+        }
+        await using var restored = await NoteStore.OpenAsync(destinationPath);
+        Assert.AreEqual("Version one backup", (await restored.GetAsync(id))?.Title);
+        Assert.AreEqual("kept", (await restored.GetAsync(id))?.Body);
+        Assert.AreEqual(0, (await restored.ListRecoveryDraftsAsync()).Count);
+    }
+
+    [TestMethod]
     public async Task RestoreRejectsUnsupportedSchemaWithoutCreatingDestination()
     {
         using var temp = new TempDirectory();
@@ -328,14 +479,14 @@ public sealed class NoteStoreTests
         {
             connection.Open();
             using var command = connection.CreateCommand();
-            command.CommandText = "PRAGMA user_version = 2;";
+            command.CommandText = "PRAGMA user_version = 3;";
             command.ExecuteNonQuery();
         }
 
         var exception = await AssertThrowsAsync<UnsupportedSchemaVersionException>(() =>
             NoteStore.RestoreAsync(sourcePath, destinationPath)
         );
-        Assert.AreEqual(2, exception.ActualVersion);
+        Assert.AreEqual(3, exception.ActualVersion);
         Assert.IsFalse(File.Exists(destinationPath));
         AssertNoRestoreTemporaryFiles(destinationPath);
     }
@@ -374,7 +525,7 @@ public sealed class NoteStoreTests
         {
             connection.Open();
             using var command = connection.CreateCommand();
-            command.CommandText = "PRAGMA user_version = 1;";
+            command.CommandText = "PRAGMA user_version = 2;";
             command.ExecuteNonQuery();
         }
 

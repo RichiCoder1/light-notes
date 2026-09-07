@@ -13,17 +13,13 @@ public sealed class NoteWorkspace : IAsyncDisposable
     private readonly Func<string, Task<INoteWorkspaceStorage>> _openStore;
     private INoteWorkspaceStorage? _store;
     private Task _pending = Task.CompletedTask;
-    private Task _saveLoop = Task.CompletedTask;
+    private Task _refreshTask = Task.CompletedTask;
     private Func<Task>? _retry;
     private Guid? _captureId;
     private bool _closing;
-    private long _draftVersion;
-    private long _savedDraftVersion;
-    private long _requestedSaveVersion;
-    private DraftContent? _observedDraft;
-    private DraftSnapshot? _latestDraft;
+    private OwnedDraftContent? _observedDraft;
     private Exception? _saveFailure;
-    private readonly Signal<bool> _needsSave;
+    private NoteDraftWriter? _draftWriter;
     private readonly Signal<bool> _ready;
     private readonly Signal<bool> _busy;
     private readonly Signal<bool> _saving;
@@ -32,6 +28,8 @@ public sealed class NoteWorkspace : IAsyncDisposable
     private readonly Signal<string> _status;
     private readonly Signal<IReadOnlyList<NoteRecord>> _allItems;
     private readonly Signal<NoteWorkspaceRoute> _route;
+    private readonly Signal<long> _draftStateVersion;
+    private readonly CollectionMemory[] _collections = [new(), new()];
 
     public NoteWorkspace(
         ReactiveScope owner,
@@ -68,13 +66,14 @@ public sealed class NoteWorkspace : IAsyncDisposable
         SearchFocus = new(owner, "search-focus");
         TitleFocus = new(owner, "title-focus");
         Constraints = new(owner);
+        CollectionViewport = new(owner, name: "notes-list-viewport");
         Items = owner.Signal<IReadOnlyList<NoteRecord>>([], "notes");
         _allItems = owner.Signal<IReadOnlyList<NoteRecord>>([], "all-notes");
         Selected = owner.Signal<NoteRecord?>(null, "selected-note");
         ShowArchived = owner.Signal(false, "show-archived");
         _route = owner.Signal(NoteWorkspaceRoute.Collection, "route");
+        _draftStateVersion = owner.Signal(0L, "draft-state-version");
         _ = owner.Effect(ApplyFilter, "notes-filter");
-        _needsSave = owner.Signal(false, "needs-save");
         _ready = owner.Signal(false, "storage-ready");
         _busy = owner.Signal(false, "workspace-busy");
         _saving = owner.Signal(false, "workspace-saving");
@@ -117,6 +116,12 @@ public sealed class NoteWorkspace : IAsyncDisposable
             _ => Run(BackupAsync, "Creating backup..."),
             () => CanEdit,
             "backup-notes"
+        );
+        DiscardDraftCommand = new(
+            owner,
+            _ => Run(DiscardDraftAsync, "Discarding draft..."),
+            () => CanEdit && HasRecoveryDraft,
+            "discard-draft"
         );
         ToggleArchiveCommand = new(
             owner,
@@ -164,6 +169,7 @@ public sealed class NoteWorkspace : IAsyncDisposable
     public ApplicationCommand FocusCaptureCommand { get; }
     public ApplicationCommand FocusSearchCommand { get; }
     public ResponsiveConstraints Constraints { get; }
+    public ViewportState CollectionViewport { get; }
     public Signal<IReadOnlyList<NoteRecord>> Items { get; }
 
     /// <summary>Gets the currently visible, archive-filtered and query-filtered records.</summary>
@@ -177,6 +183,7 @@ public sealed class NoteWorkspace : IAsyncDisposable
     public ApplicationCommand OpenLinkCommand { get; }
     public ApplicationCommand RetryCommand { get; }
     public ApplicationCommand BackupCommand { get; }
+    public ApplicationCommand DiscardDraftCommand { get; }
     public ApplicationCommand ToggleArchiveCommand { get; }
     public CommandBindings Bindings { get; }
     public bool IsReady => _ready.Value;
@@ -185,6 +192,26 @@ public sealed class NoteWorkspace : IAsyncDisposable
     public bool CanEdit => IsReady && !IsBusy && !_closing;
     public bool CanSearch => IsReady && !_closing;
     public bool CanOpenLink => TryGetSelectedWebUri(out _);
+    public bool HasRecoveryDraft
+    {
+        get
+        {
+            _ = _draftStateVersion.Value;
+            return Selected.Value is { } selected && (_draftWriter?.Has(selected.Id) ?? false);
+        }
+    }
+    public bool HasDurableRecoveryDraft
+    {
+        get
+        {
+            _ = _draftStateVersion.Value;
+            return Selected.Value is { } selected
+                && (_draftWriter?.IsDurable(selected.Id) ?? false);
+        }
+    }
+    public bool HasValidationError => ValidationMessage is not null;
+    public string? ValidationMessage =>
+        Selected.Value is null ? null : Validate(CurrentDraft(Selected.Value.Id));
     public bool IsDirty
     {
         get
@@ -195,8 +222,7 @@ public sealed class NoteWorkspace : IAsyncDisposable
             var body = Body.Text;
             return selected is { } item
                 && (
-                    _needsSave.Value
-                    || _latestDraft is { } latest && latest.Version > _savedDraftVersion
+                    (_draftWriter?.Has(item.Id) ?? false)
                     || title != item.Title
                     || url != (item.Url ?? "")
                     || body != item.Body
@@ -207,6 +233,9 @@ public sealed class NoteWorkspace : IAsyncDisposable
         _error.Value is { } error ? _errorHeading.Value + ". " + error
         : IsBusy ? _status.Value
         : IsSaving ? "Saving..."
+        : HasValidationError
+            ? HasDurableRecoveryDraft ? "Draft saved on this device. " + ValidationMessage
+                : "Draft needs attention. " + ValidationMessage
         : IsDirty ? "Saving changes..."
         : _status.Value;
 
@@ -315,16 +344,101 @@ public sealed class NoteWorkspace : IAsyncDisposable
             BackToCollection();
             return;
         }
-        _ = Run(() => SetCollectionAsync(archived), "Opening notes...");
+        SwitchCollection(archived);
+    }
+
+    /// <summary>Opens a record by identity.</summary>
+    public void Open(Guid id) => Select(id);
+
+    /// <summary>Archives or restores a row target without changing the active editor.</summary>
+    public void SetArchived(Guid id, bool archived)
+    {
+        if (!CanEdit || !_allItems.Value.Any(item => item.Id == id))
+            return;
+        _ = Run(() => SetArchivedAsync(id, archived), archived ? "Archiving..." : "Restoring...");
+    }
+
+    /// <summary>Gets whether a record target currently has a valid HTTP link.</summary>
+    public bool CanOpenRecordLink(Guid id) => TryGetWebUri(id, out _);
+
+    /// <summary>Opens a record target's link without selecting that record.</summary>
+    public void OpenRecordLink(Guid id)
+    {
+        if (!CanEdit || !TryGetWebUri(id, out var uri))
+            return;
+        _ = Run(() => OpenUriAsync(uri), "Opening link...", "Could not open link");
+    }
+
+    /// <summary>Returns a validated link string for a record-targeted copy command.</summary>
+    public string? LinkToCopy(Guid id)
+    {
+        if (!TryGetWebUri(id, out _))
+            return null;
+        return Selected.Value?.Id == id
+            ? Url.Text
+            : _allItems.Value.First(item => item.Id == id).Url;
+    }
+
+    private void SwitchCollection(bool archived)
+    {
+        RememberCollectionState();
+        var preservation = PersistCurrentForNavigationAsync();
+        ShowArchived.Value = archived;
+        var next = CollectionState(archived);
+        Search.Text = next.Query;
+        CollectionViewport.Offset = next.Offset;
+        ApplyFilter();
+        var selected = next.SelectedId is { } remembered
+            ? _allItems.Value.FirstOrDefault(item =>
+                item.Id == remembered && item.IsArchived == archived
+            )
+            : null;
+        selected ??= VisibleItems.Count == 0 ? null : VisibleItems[0];
+        selected ??= _allItems.Value.FirstOrDefault(item => item.IsArchived == archived);
+        SelectRecord(selected);
+        BackToCollection();
+        _refreshTask = CompleteCollectionSwitchAsync(_refreshTask, preservation);
     }
 
     private async Task SetCollectionAsync(bool archived)
     {
-        await SaveCurrentAsync();
-        ShowArchived.Value = archived;
-        await RefreshAsync();
-        SelectRecord(VisibleItems.Count == 0 ? null : VisibleItems[0]);
-        BackToCollection();
+        SwitchCollection(archived);
+        await _refreshTask;
+    }
+
+    private async Task RefreshCollectionAsync()
+    {
+        try
+        {
+            await RefreshAsync();
+            var selected = Selected.Value;
+            if (selected is not null)
+            {
+                var refreshed = _allItems.Value.FirstOrDefault(item => item.Id == selected.Id);
+                if (refreshed is not null)
+                    Selected.Value = refreshed;
+            }
+        }
+        catch (Exception error)
+        {
+            _errorHeading.Value = "Could not refresh notes";
+            _error.Value = error.Message;
+            _retry = RefreshCollectionAsync;
+        }
+    }
+
+    private async Task CompleteCollectionSwitchAsync(Task priorRefresh, Task preservation)
+    {
+        await Task.WhenAll(priorRefresh, preservation);
+        await RefreshCollectionAsync();
+    }
+
+    private Task PersistCurrentForNavigationAsync()
+    {
+        if (Selected.Value is not { } selected || !IsDirty)
+            return Task.CompletedTask;
+        ObserveDraft();
+        return DraftWriter.RequestAsync(selected.Id, DraftWriter.CurrentVersion(selected.Id));
     }
 
     private Task Run(Func<Task> action, string status, string errorHeading = "Could not save")
@@ -372,8 +486,32 @@ public sealed class NoteWorkspace : IAsyncDisposable
     private async Task LoadAsync()
     {
         _store ??= await _openStore(_databasePath);
+        _draftWriter ??= new(
+            Store,
+            Validate,
+            saved =>
+            {
+                if (Selected.Value?.Id == saved.Id)
+                    Selected.Value = saved;
+                ReplaceRecord(saved);
+                if (!HasPendingWriteFailure)
+                {
+                    _saveFailure = null;
+                    _error.Value = null;
+                }
+            },
+            (id, error) => RecordSaveFailureAsync(error, id),
+            () =>
+            {
+                _saving.Value = _draftWriter?.IsWriting ?? false;
+                DraftStateChanged();
+            }
+        );
         await RefreshAsync();
+        foreach (var draft in await Store.ListRecoveryDraftsAsync())
+            DraftWriter.Restore(draft);
         SelectRecord((VisibleItems.Count == 0 ? null : VisibleItems[0]));
+        RememberCollectionState();
         _route.Value = NoteWorkspaceRoute.Collection;
         _ready.Value = true;
         _status.Value =
@@ -420,103 +558,46 @@ public sealed class NoteWorkspace : IAsyncDisposable
         if (_observedDraft == content)
             return;
 
-        var hadPendingSave =
-            !_saveLoop.IsCompleted
-            || _savedDraftVersion < _requestedSaveVersion
-            || HasPendingWriteFailure;
         _observedDraft = content;
-        _draftVersion = checked(_draftVersion + 1);
-        _latestDraft = new(_draftVersion, content);
-        if (Matches(content, selected) && !_needsSave.Value && !hadPendingSave)
+        if (
+            Matches(content, selected)
+            && (!DraftWriter.Has(selected.Id) || DraftWriter.TryRemoveUnpersisted(selected.Id))
+        )
         {
             _autosave.Cancel();
-            _savedDraftVersion = _draftVersion;
-            _requestedSaveVersion = _draftVersion;
             return;
         }
-
-        var scheduledVersion = _draftVersion;
-        _autosave.Restart(AutosaveDelay, () => QueueAutosave(scheduledVersion));
+        var version = DraftWriter.Observe(content, selected.Revision);
+        _autosave.Restart(AutosaveDelay, () => QueueAutosave(selected.Id, version));
     }
 
-    private DraftContent CurrentDraft(Guid id)
+    private OwnedDraftContent CurrentDraft(Guid id)
     {
         var url = string.IsNullOrWhiteSpace(Url.Text) ? null : Url.Text;
         return new(id, url is null ? NoteKind.Note : NoteKind.Link, Title.Text, url, Body.Text);
     }
 
-    private static bool Matches(DraftContent draft, NoteRecord record) =>
+    private static bool Matches(OwnedDraftContent draft, NoteRecord record) =>
         draft.Id == record.Id
         && draft.Kind == record.Kind
         && draft.Title == record.Title
         && draft.Url == record.Url
         && draft.Body == record.Body;
 
-    private void QueueAutosave(long version)
+    private void QueueAutosave(Guid id, long version)
     {
-        if (_closing || _latestDraft is not { } latest || latest.Version != version)
+        if (_closing || DraftWriter.CurrentVersion(id) != version)
             return;
-        RequestSave(version);
-    }
-
-    private void RequestSave(long version)
-    {
-        _requestedSaveVersion = Math.Max(_requestedSaveVersion, version);
-        if (_saveLoop.IsCompleted)
-            _saveLoop = SaveLoopAsync();
-    }
-
-    private async Task SaveLoopAsync()
-    {
-        _saving.Value = true;
-        try
-        {
-            while (_savedDraftVersion < _requestedSaveVersion)
-            {
-                if (_latestDraft is not { } snapshot)
-                    return;
-                if (snapshot.Version > _requestedSaveVersion)
-                    return;
-                if (Selected.Value is not { } selected || selected.Id != snapshot.Content.Id)
-                    return;
-
-                NoteRecord saved;
-                try
-                {
-                    saved = await Store.SaveAsync(ToDraft(snapshot.Content, selected.Revision));
-                }
-                catch (Exception error)
-                {
-                    await RecordSaveFailureAsync(error, snapshot.Content.Id);
-                    return;
-                }
-
-                _savedDraftVersion = Math.Max(_savedDraftVersion, snapshot.Version);
-                _saveFailure = null;
-                _error.Value = null;
-                if (Selected.Value?.Id == saved.Id)
-                    Selected.Value = saved;
-                ReplaceRecord(saved);
-                if (_latestDraft is { } latest && latest.Version == snapshot.Version)
-                {
-                    _needsSave.Value = false;
-                    _status.Value = "Saved on this device";
-                }
-            }
-        }
-        finally
-        {
-            _saving.Value = false;
-        }
+        _ = DraftWriter.RequestAsync(id, version);
     }
 
     private bool HasPendingWriteFailure =>
         _saveFailure is not null || (_store?.HasUnresolvedWriteFailures ?? false);
 
-    private static NoteDraft ToDraft(DraftContent content, long expectedRevision)
+    private static string? Validate(OwnedDraftContent content)
     {
         if (string.IsNullOrWhiteSpace(content.Title))
-            throw new ArgumentException("Give this note a title before saving.");
+            return "Give this note a title before saving.";
         if (
             content.Url is { } value
             && (
@@ -524,17 +605,8 @@ public sealed class NoteWorkspace : IAsyncDisposable
                 || url.Scheme is not ("http" or "https")
             )
         )
-            throw new ArgumentException(
-                "Use a complete http or https link, or leave the URL empty."
-            );
-        return new(
-            content.Id,
-            content.Kind,
-            content.Title,
-            content.Url,
-            content.Body,
-            expectedRevision
-        );
+            return "Use a complete http or https link, or leave the URL empty.";
+        return null;
     }
 
     private async Task RecordSaveFailureAsync(Exception error, Guid noteId)
@@ -547,10 +619,11 @@ public sealed class NoteWorkspace : IAsyncDisposable
             return;
         try
         {
-            if (await Store.GetAsync(noteId) is { } latest && Selected.Value?.Id == noteId)
+            if (await Store.GetAsync(noteId) is { } latest)
             {
-                Selected.Value = latest;
-                _needsSave.Value = true;
+                ReplaceRecord(latest);
+                if (Selected.Value?.Id == noteId)
+                    Selected.Value = latest;
                 _error.Value =
                     "This note changed on disk. Your draft is kept; Retry saves it over the newer version.";
             }
@@ -567,10 +640,9 @@ public sealed class NoteWorkspace : IAsyncDisposable
 
         ObserveDraft();
         _autosave.Cancel();
-        var target = _latestDraft?.Version ?? _draftVersion;
-        RequestSave(target);
-        await _saveLoop;
-        if (_savedDraftVersion < target && _saveFailure is { } failure)
+        var target = DraftWriter.CurrentVersion(selected.Id);
+        await DraftWriter.RequestAsync(selected.Id, target);
+        if (DraftWriter.Failure(selected.Id) is { } failure)
             throw failure;
     }
 
@@ -587,11 +659,20 @@ public sealed class NoteWorkspace : IAsyncDisposable
 
     private async Task ArchiveAsync()
     {
-        await SaveCurrentAsync();
         if (Selected.Value is not { } item)
             return;
-        await Store.ArchiveAsync(item.Id, !item.IsArchived);
-        await RefreshAsync();
+        await SetArchivedAsync(item.Id, !item.IsArchived);
+    }
+
+    private async Task SetArchivedAsync(Guid id, bool archived)
+    {
+        var wasActive = Selected.Value?.Id == id;
+        if (wasActive)
+            await SaveCurrentAsync();
+        var changed = await Store.ArchiveAsync(id, archived);
+        ReplaceRecord(changed);
+        if (!wasActive)
+            return;
         SelectRecord(VisibleItems.Count == 0 ? null : VisibleItems[0]);
         BackToCollection();
     }
@@ -604,6 +685,11 @@ public sealed class NoteWorkspace : IAsyncDisposable
             throw new InvalidOperationException(
                 "The selected note does not have a valid web link."
             );
+        await OpenUriAsync(uri);
+    }
+
+    private async Task OpenUriAsync(Uri uri)
+    {
         await _linkOpener.OpenAsync(uri);
         _status.Value = "Opened link";
     }
@@ -635,6 +721,7 @@ public sealed class NoteWorkspace : IAsyncDisposable
     {
         var query = Search.Text.Trim();
         var archived = ShowArchived.Value;
+        CollectionState(archived).Query = Search.Text;
         var visible = _allItems
             .Value.Where(item => item.IsArchived == archived)
             .Where(item =>
@@ -650,27 +737,81 @@ public sealed class NoteWorkspace : IAsyncDisposable
     private void SelectRecord(NoteRecord? item)
     {
         _autosave.Cancel();
-        _needsSave.Value = false;
         Selected.Value = item;
+        CollectionState(ShowArchived.Value).SelectedId = item?.Id;
         var id = item?.Id.ToString() ?? "empty";
-        Title.SwitchDocument(id, item?.Title ?? "");
-        Url.SwitchDocument(id, item?.Url ?? "");
-        Body.SwitchDocument(id, item?.Body ?? "");
-        _draftVersion = checked(_draftVersion + 1);
-        _observedDraft = item is null
+        OwnedDraftContent? content = item is null
             ? null
-            : new(item.Id, item.Kind, item.Title, item.Url, item.Body);
-        _latestDraft = _observedDraft is { } content ? new(_draftVersion, content) : null;
-        _savedDraftVersion = _draftVersion;
-        _requestedSaveVersion = _draftVersion;
-        _saveFailure = null;
+            : DraftWriter.Content(item.Id)
+                ?? new(item.Id, item.Kind, item.Title, item.Url, item.Body);
+        Title.SwitchDocument(id, content?.Title ?? "");
+        Url.SwitchDocument(id, content?.Url ?? "");
+        Body.SwitchDocument(id, content?.Body ?? "");
+        _observedDraft = content;
+    }
+
+    private bool TryGetWebUri(Guid id, out Uri uri)
+    {
+        if (Selected.Value?.Id == id)
+            return TryGetSelectedWebUri(out uri);
+        var value = _allItems.Value.FirstOrDefault(item => item.Id == id)?.Url;
+        if (
+            value is not null
+            && Uri.TryCreate(value, UriKind.Absolute, out var parsed)
+            && parsed.Scheme is "http" or "https"
+        )
+        {
+            uri = parsed;
+            return true;
+        }
+        uri = null!;
+        return false;
+    }
+
+    private async Task DiscardDraftAsync()
+    {
+        if (Selected.Value is not { } selected || !DraftWriter.Has(selected.Id))
+            return;
+        await DraftWriter.DrainAsync(selected.Id);
+        await Store.DiscardRecoveryDraftAsync(selected.Id);
+        DraftWriter.Remove(selected.Id);
+        SelectRecord(selected);
+        _error.Value = null;
+        _retry = null;
+        _status.Value = "Draft discarded";
+    }
+
+    private CollectionMemory CollectionState(bool archived) => _collections[archived ? 1 : 0];
+
+    private void DraftStateChanged() =>
+        _draftStateVersion.Value = checked(_draftStateVersion.Value + 1);
+
+    private void RememberCollectionState()
+    {
+        var state = CollectionState(ShowArchived.Value);
+        state.Query = Search.Text;
+        state.Offset = CollectionViewport.Offset;
+        if (Selected.Value is { } selected && selected.IsArchived == ShowArchived.Value)
+            state.SelectedId = selected.Id;
     }
 
     private async Task RetryAsync()
     {
-        if (_store is { HasUnresolvedWriteFailures: true })
+        if (_saveFailure is NoteConcurrencyException conflict)
         {
-            await SaveCurrentAsync();
+            var latest =
+                await Store.GetAsync(conflict.NoteId)
+                ?? throw new InvalidOperationException("The conflicted note no longer exists.");
+            DraftWriter.AcceptConflict(conflict.NoteId, latest.Revision);
+            await DraftWriter.RequestAsync(
+                conflict.NoteId,
+                DraftWriter.CurrentVersion(conflict.NoteId)
+            );
+            if (DraftWriter.Failure(conflict.NoteId) is { } retryFailure)
+                throw retryFailure;
+        }
+        else if (_store is { HasUnresolvedWriteFailures: true })
+        {
             var result = await _store.RetryFailedWritesAsync();
             if (result.Remaining != 0)
                 throw new IOException("Accepted changes still could not be saved.");
@@ -687,6 +828,9 @@ public sealed class NoteWorkspace : IAsyncDisposable
                     SelectRecord(captured);
                 }
             }
+            var notes = await _store.ListAsync(includeArchived: true);
+            var recoveries = await _store.ListRecoveryDraftsAsync();
+            DraftWriter.Reconcile(recoveries, notes);
         }
         else if (_retry is { } retry)
             await retry();
@@ -702,6 +846,8 @@ public sealed class NoteWorkspace : IAsyncDisposable
             else
                 SelectRecord(Items.Value.Count == 0 ? null : Items.Value[0]);
         }
+        _saveFailure = null;
+        _error.Value = null;
     }
 
     private async Task BackupAsync()
@@ -720,7 +866,11 @@ public sealed class NoteWorkspace : IAsyncDisposable
     {
         _closing = true;
         _autosave.Cancel();
-        await _pending;
+        await Task.WhenAll(
+            _pending,
+            _refreshTask,
+            _draftWriter?.DrainAsync() ?? Task.CompletedTask
+        );
         if (_store is null)
             return true;
         await Run(SaveCurrentAsync, "Finishing your save...");
@@ -750,11 +900,17 @@ public sealed class NoteWorkspace : IAsyncDisposable
     private INoteWorkspaceStorage Store =>
         _store ?? throw new InvalidOperationException("Your notes are still opening.");
 
+    private NoteDraftWriter DraftWriter =>
+        _draftWriter ?? throw new InvalidOperationException("Your notes are still opening.");
+
     public async ValueTask DisposeAsync()
     {
         _autosave.Cancel();
-        await _pending;
-        await _saveLoop;
+        await Task.WhenAll(
+            _pending,
+            _refreshTask,
+            _draftWriter?.DrainAsync() ?? Task.CompletedTask
+        );
         try
         {
             if (_store is not null)
@@ -763,16 +919,14 @@ public sealed class NoteWorkspace : IAsyncDisposable
         finally
         {
             _autosave.Dispose();
+            CollectionViewport.Dispose();
         }
     }
 
-    private readonly record struct DraftContent(
-        Guid Id,
-        NoteKind Kind,
-        string Title,
-        string? Url,
-        string Body
-    );
-
-    private readonly record struct DraftSnapshot(long Version, DraftContent Content);
+    private sealed class CollectionMemory
+    {
+        public Guid? SelectedId { get; set; }
+        public string Query { get; set; } = "";
+        public ScrollOffset Offset { get; set; }
+    }
 }

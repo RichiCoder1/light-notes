@@ -7,7 +7,7 @@ namespace LightNotes.Storage;
 
 public sealed class NoteStore : IAsyncDisposable
 {
-    public const int SchemaVersion = 1;
+    public const int SchemaVersion = 2;
 
     private readonly object _gate = new();
     private readonly BlockingCollection<WorkItem> _queue = new();
@@ -86,9 +86,70 @@ public sealed class NoteStore : IAsyncDisposable
         ValidateDraft(draft);
         var snapshot = draft with { };
         return EnqueueWrite(
-            $"save:{snapshot.Id:D}",
+            $"draft:{snapshot.Id:D}",
             snapshot.Id,
-            connection => Save(connection, snapshot),
+            connection => Save(connection, snapshot, clearRecovery: false),
+            cancellationToken
+        );
+    }
+
+    public Task<NoteRecord> SaveAndClearRecoveryAsync(
+        NoteDraft draft,
+        CancellationToken cancellationToken = default
+    )
+    {
+        ArgumentNullException.ThrowIfNull(draft);
+        ValidateDraft(draft);
+        var snapshot = draft with { };
+        return EnqueueWrite(
+            $"draft:{snapshot.Id:D}",
+            snapshot.Id,
+            connection => Save(connection, snapshot, clearRecovery: true),
+            cancellationToken
+        );
+    }
+
+    public Task<NoteRecoveryDraft> SaveRecoveryDraftAsync(
+        NoteDraft draft,
+        CancellationToken cancellationToken = default
+    )
+    {
+        ArgumentNullException.ThrowIfNull(draft);
+        ValidateDraft(draft);
+        if (draft.ExpectedRevision is null or < 1)
+            throw new ArgumentOutOfRangeException(
+                nameof(draft),
+                "A recovery draft requires the positive revision of its last valid note."
+            );
+        var snapshot = draft with { };
+        return EnqueueWrite(
+            $"draft:{snapshot.Id:D}",
+            snapshot.Id,
+            connection => SaveRecoveryDraft(connection, snapshot),
+            cancellationToken
+        );
+    }
+
+    public Task<IReadOnlyList<NoteRecoveryDraft>> ListRecoveryDraftsAsync(
+        CancellationToken cancellationToken = default
+    ) =>
+        Enqueue(
+            connection => (IReadOnlyList<NoteRecoveryDraft>)ReadRecoveryDrafts(connection),
+            cancellationToken
+        );
+
+    public Task DiscardRecoveryDraftAsync(Guid id, CancellationToken cancellationToken = default)
+    {
+        if (id == Guid.Empty)
+            throw new ArgumentException("A note ID cannot be empty.", nameof(id));
+        return EnqueueWrite<object?>(
+            $"draft:{id:D}",
+            id,
+            connection =>
+            {
+                DeleteRecoveryDraft(connection, id);
+                return null;
+            },
             cancellationToken
         );
     }
@@ -364,7 +425,7 @@ public sealed class NoteStore : IAsyncDisposable
             );
         }
 
-        ValidateSupportedDatabase(sourceConnection, source);
+        ValidateSupportedRestoreSource(sourceConnection, source);
         cancellationToken.ThrowIfCancellationRequested();
         CreateDestinationDirectory(destination);
         EnsureNewRestoreDestination(destination);
@@ -375,6 +436,13 @@ public sealed class NoteStore : IAsyncDisposable
             {
                 restored.Open();
                 sourceConnection.BackupDatabase(restored);
+            }
+
+            cancellationToken.ThrowIfCancellationRequested();
+            using (var migration = new SqliteConnection(CreateConnectionString(temporaryPath)))
+            {
+                migration.Open();
+                InitializeSchema(migration);
             }
 
             cancellationToken.ThrowIfCancellationRequested();
@@ -625,7 +693,7 @@ public sealed class NoteStore : IAsyncDisposable
         Volatile.Write(ref _unresolvedWriteFailures, _failedWrites.Count);
     }
 
-    private static NoteRecord Save(SqliteConnection connection, NoteDraft draft)
+    private static NoteRecord Save(SqliteConnection connection, NoteDraft draft, bool clearRecovery)
     {
         using var transaction = connection.BeginTransaction();
         var now = DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture);
@@ -680,6 +748,8 @@ public sealed class NoteStore : IAsyncDisposable
             var record =
                 ReadById(connection, draft.Id, transaction)
                 ?? throw new InvalidOperationException("The saved note could not be read back.");
+            if (clearRecovery)
+                DeleteRecoveryDraft(connection, draft.Id, transaction);
             transaction.Commit();
             return record;
         }
@@ -688,6 +758,79 @@ public sealed class NoteStore : IAsyncDisposable
         {
             throw new NoteConcurrencyException(draft.Id, 0);
         }
+    }
+
+    private static NoteRecoveryDraft SaveRecoveryDraft(SqliteConnection connection, NoteDraft draft)
+    {
+        var now = DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture);
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            INSERT INTO recovery_drafts (note_id, kind, title, url, body, base_revision, updated_utc)
+            VALUES ($id, $kind, $title, $url, $body, $base_revision, $now)
+            ON CONFLICT(note_id) DO UPDATE SET
+                kind = excluded.kind,
+                title = excluded.title,
+                url = excluded.url,
+                body = excluded.body,
+                base_revision = excluded.base_revision,
+                updated_utc = excluded.updated_utc;
+            """;
+        AddDraftParameters(command, draft, now);
+        command.Parameters.AddWithValue("$base_revision", draft.ExpectedRevision!.Value);
+        command.ExecuteNonQuery();
+        return new(
+            draft.Id,
+            draft.Kind,
+            draft.Title,
+            draft.Url,
+            draft.Body,
+            draft.ExpectedRevision.Value,
+            DateTimeOffset.Parse(now, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind)
+        );
+    }
+
+    private static List<NoteRecoveryDraft> ReadRecoveryDrafts(SqliteConnection connection)
+    {
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT note_id, kind, title, url, body, base_revision, updated_utc
+            FROM recovery_drafts
+            ORDER BY updated_utc DESC, note_id ASC;
+            """;
+        using var reader = command.ExecuteReader();
+        var drafts = new List<NoteRecoveryDraft>();
+        while (reader.Read())
+        {
+            drafts.Add(
+                new(
+                    Guid.Parse(reader.GetString(0), CultureInfo.InvariantCulture),
+                    (NoteKind)reader.GetInt32(1),
+                    reader.GetString(2),
+                    reader.IsDBNull(3) ? null : reader.GetString(3),
+                    reader.GetString(4),
+                    reader.GetInt64(5),
+                    DateTimeOffset.Parse(
+                        reader.GetString(6),
+                        CultureInfo.InvariantCulture,
+                        DateTimeStyles.RoundtripKind
+                    )
+                )
+            );
+        }
+        return drafts;
+    }
+
+    private static void DeleteRecoveryDraft(
+        SqliteConnection connection,
+        Guid id,
+        SqliteTransaction? transaction = null
+    )
+    {
+        using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = "DELETE FROM recovery_drafts WHERE note_id = $id;";
+        command.Parameters.AddWithValue("$id", id.ToString("D", CultureInfo.InvariantCulture));
+        command.ExecuteNonQuery();
     }
 
     private static NoteRecord Archive(
@@ -810,6 +953,7 @@ public sealed class NoteStore : IAsyncDisposable
 
             ValidateIntegrity(connection, databasePath);
             ValidateNotesSchema(connection, databasePath);
+            ValidateRecoveryDraftsSchema(connection, databasePath);
             foreach (var record in ReadAll(connection, includeArchived: true))
             {
                 ValidateRecoveredRecord(record, databasePath);
@@ -953,19 +1097,95 @@ public sealed class NoteStore : IAsyncDisposable
         }
     }
 
+    private static void ValidateSupportedRestoreSource(
+        SqliteConnection connection,
+        string databasePath
+    )
+    {
+        try
+        {
+            var version = ReadSchemaVersion(connection);
+            if (version is not (1 or SchemaVersion))
+                throw new UnsupportedSchemaVersionException(version, SchemaVersion);
+
+            ValidateIntegrity(connection, databasePath);
+            ValidateNotesSchema(connection, databasePath);
+            if (version == SchemaVersion)
+                ValidateRecoveryDraftsSchema(connection, databasePath);
+            foreach (var record in ReadAll(connection, includeArchived: true))
+                ValidateRecoveredRecord(record, databasePath);
+        }
+        catch (UnsupportedSchemaVersionException)
+        {
+            throw;
+        }
+        catch (InvalidDataException)
+        {
+            throw;
+        }
+        catch (Exception exception)
+            when (exception
+                    is SqliteException
+                        or FormatException
+                        or OverflowException
+                        or InvalidCastException
+            )
+        {
+            throw new InvalidDataException(
+                $"The recovery database failed validation: {databasePath}.",
+                exception
+            );
+        }
+    }
+
+    private static void ValidateRecoveryDraftsSchema(
+        SqliteConnection connection,
+        string databasePath
+    )
+    {
+        using var command = connection.CreateCommand();
+        command.CommandText = "SELECT COUNT(*) FROM pragma_table_info('recovery_drafts');";
+        if (Convert.ToInt32(command.ExecuteScalar(), CultureInfo.InvariantCulture) != 7)
+            throw new InvalidDataException(
+                $"The recovery database has an unsupported recovery-drafts schema: {databasePath}."
+            );
+    }
+
     private static void InitializeSchema(SqliteConnection connection)
     {
         using (var command = connection.CreateCommand())
         {
             command.CommandText = "PRAGMA user_version;";
             var version = Convert.ToInt32(command.ExecuteScalar(), CultureInfo.InvariantCulture);
-            if (version != 0 && version != SchemaVersion)
+            if (version is not (0 or 1) && version != SchemaVersion)
             {
                 throw new UnsupportedSchemaVersionException(version, SchemaVersion);
             }
 
             if (version == SchemaVersion)
             {
+                return;
+            }
+
+            if (version == 1)
+            {
+                using var migrationTransaction = connection.BeginTransaction();
+                using var migration = connection.CreateCommand();
+                migration.Transaction = migrationTransaction;
+                migration.CommandText = """
+                    CREATE TABLE recovery_drafts (
+                        note_id TEXT NOT NULL PRIMARY KEY REFERENCES notes(id) ON DELETE CASCADE,
+                        kind INTEGER NOT NULL CHECK (kind IN (0, 1)),
+                        title TEXT NOT NULL,
+                        url TEXT NULL,
+                        body TEXT NOT NULL,
+                        base_revision INTEGER NOT NULL CHECK (base_revision > 0),
+                        updated_utc TEXT NOT NULL
+                    );
+                    PRAGMA user_version = 2;
+                    """;
+                migration.ExecuteNonQuery();
+                migrationTransaction.Commit();
                 return;
             }
         }
@@ -985,7 +1205,16 @@ public sealed class NoteStore : IAsyncDisposable
                 created_utc TEXT NOT NULL,
                 updated_utc TEXT NOT NULL
             );
-            PRAGMA user_version = 1;
+            CREATE TABLE recovery_drafts (
+                note_id TEXT NOT NULL PRIMARY KEY REFERENCES notes(id) ON DELETE CASCADE,
+                kind INTEGER NOT NULL CHECK (kind IN (0, 1)),
+                title TEXT NOT NULL,
+                url TEXT NULL,
+                body TEXT NOT NULL,
+                base_revision INTEGER NOT NULL CHECK (base_revision > 0),
+                updated_utc TEXT NOT NULL
+            );
+            PRAGMA user_version = 2;
             """;
         create.ExecuteNonQuery();
         transaction.Commit();

@@ -44,7 +44,7 @@ public sealed class WorkspaceTests
     }
 
     [TestMethod]
-    public void CloseSavesDirtyDraftAndFailureKeepsItAvailableForRetry()
+    public void CloseAcceptsDurableInvalidDraftWithoutReportingStorageFailure()
     {
         using var fixture = new Fixture();
         var model = fixture.Model;
@@ -54,17 +54,21 @@ public sealed class WorkspaceTests
         model.Title.Text = "";
         var rejected = model.PrepareCloseAsync().AsTask();
         fixture.Pump(rejected);
-        Assert.IsFalse(rejected.Result);
+        Assert.IsTrue(rejected.Result);
         Assert.IsTrue(model.IsDirty);
-        Assert.IsTrue(model.RetryCommand.IsEnabled);
-        model.Title.Text = "Corrected draft";
-        fixture.Execute(model.RetryCommand);
-        Assert.IsFalse(model.IsDirty);
-        model.Body.Text = "Close accepts this final change.";
-        var accepted = model.PrepareCloseAsync().AsTask();
-        fixture.Pump(accepted);
-        Assert.IsTrue(accepted.Result);
-        Assert.IsFalse(model.IsDirty);
+        Assert.IsFalse(model.HasError);
+    }
+
+    [TestMethod]
+    public void CloseAfterStartupFailureDoesNotRequireAnInitializedDraftWriter()
+    {
+        using var fixture = new Fixture(new IOException("database unavailable"));
+        fixture.Pump(fixture.Model.StartAsync());
+        Assert.IsTrue(fixture.Model.HasError);
+
+        var close = fixture.Model.PrepareCloseAsync().AsTask();
+        fixture.Pump(close);
+        Assert.IsTrue(close.Result);
     }
 
     [TestMethod]
@@ -141,13 +145,13 @@ public sealed class WorkspaceTests
         Assert.IsTrue(model.CanSearch);
 
         model.ShowArchive();
-        fixture.Until(() => model.IsBusy && model.ShowArchived.Value);
+        fixture.Until(() => model.ShowArchived.Value && storage.ReloadPending);
         Assert.IsTrue(model.CanSearch, "An ordinary collection reload disabled search input.");
         model.Search.Text = "matching";
         fixture.Drain();
 
         storage.CompleteReload();
-        fixture.Until(() => !model.IsBusy);
+        fixture.Until(() => model.VisibleItems.Count == 1);
         Assert.AreEqual("matching", model.Query);
         Assert.AreEqual(matchingArchive.Id, model.VisibleItems.Single().Id);
         Assert.IsTrue(model.CanSearch);
@@ -358,23 +362,299 @@ public sealed class WorkspaceTests
         model.Title.Text = "";
         fixture.Drain();
         fixture.Autosave.Fire();
-        fixture.Until(() => model.HasError && !model.IsSaving);
+        fixture.Until(() => model.HasValidationError && !model.IsSaving);
 
         Assert.IsTrue(model.IsDirty);
-        Assert.IsTrue(model.RetryCommand.IsEnabled);
+        Assert.IsTrue(model.DiscardDraftCommand.IsEnabled);
         Assert.AreEqual("", model.Title.Text);
         StringAssert.Contains(model.StatusText, "Give this note a title");
 
         model.Url.Text = "https://example.com/still-show-save-failure";
         fixture.Execute(model.OpenLinkCommand);
-        Assert.IsTrue(model.HasError);
+        Assert.IsTrue(model.HasValidationError);
         StringAssert.Contains(model.StatusText, "Give this note a title");
 
         model.Title.Text = "Corrected after autosave failure";
         fixture.Drain();
-        fixture.Execute(model.RetryCommand);
+        fixture.Execute(model.SaveCommand);
         Assert.IsFalse(model.IsDirty);
         Assert.AreEqual("Corrected after autosave failure", model.Selected.Value!.Title);
+    }
+
+    [TestMethod]
+    public void InvalidDraftAutosavesWithoutStorageErrorAndSurvivesNavigation()
+    {
+        using var fixture = new Fixture();
+        var model = fixture.Model;
+        fixture.Pump(model.StartAsync());
+        model.Capture.Text = "First valid note";
+        fixture.Execute(model.CaptureCommand);
+        var first = model.Selected.Value!.Id;
+
+        model.Title.Text = "";
+        model.Url.Text = "https://";
+        model.Body.Text = "Incomplete but recoverable";
+        fixture.Drain();
+        fixture.Autosave.Fire();
+        fixture.Until(() => !model.IsSaving);
+
+        Assert.IsFalse(model.HasError);
+        Assert.IsFalse(model.CanOpenLink);
+        StringAssert.Contains(model.StatusText, "Draft saved");
+
+        model.Capture.Text = "Second note";
+        fixture.Execute(model.CaptureCommand);
+        Assert.AreNotEqual(first, model.Selected.Value!.Id);
+
+        model.Select(first);
+        fixture.Until(() => !model.IsBusy && model.Selected.Value?.Id == first);
+        Assert.AreEqual("", model.Title.Text);
+        Assert.AreEqual("https://", model.Url.Text);
+        Assert.AreEqual("Incomplete but recoverable", model.Body.Text);
+        Assert.IsTrue(model.IsDirty);
+    }
+
+    [TestMethod]
+    public void CollectionNavigationRetainsPendingDraftAndReportsRecoveryWriteFailureTruthfully()
+    {
+        var inbox = ControlledStorage.Record("Inbox", "saved");
+        var archived = ControlledStorage.Record("Archive", "saved") with { IsArchived = true };
+        var storage = new PendingRecoveryStorage([inbox, archived]);
+        using var fixture = new Fixture(storage);
+        var model = fixture.Model;
+        fixture.Pump(model.StartAsync());
+
+        model.Title.Text = "";
+        model.Body.Text = "Retained while recovery write is pending";
+        model.ShowArchive();
+
+        Assert.IsTrue(
+            model.ShowArchived.Value,
+            "Cached collection switch waited for recovery I/O."
+        );
+        Assert.AreEqual(archived.Id, model.Selected.Value?.Id);
+        Assert.IsFalse(model.HasDurableRecoveryDraft);
+
+        model.ShowInbox();
+        Assert.AreEqual(inbox.Id, model.Selected.Value?.Id);
+        Assert.AreEqual("", model.Title.Text);
+        Assert.AreEqual("Retained while recovery write is pending", model.Body.Text);
+        Assert.IsFalse(model.HasDurableRecoveryDraft);
+
+        storage.FailRecovery(new IOException("Recovery disk unavailable."));
+        fixture.Until(() => model.HasError);
+        Assert.AreEqual("Could not save", model.ErrorHeading);
+        StringAssert.Contains(model.StatusText, "Recovery disk unavailable");
+        Assert.IsFalse(model.HasDurableRecoveryDraft);
+        Assert.IsTrue(model.HasRecoveryDraft);
+    }
+
+    [TestMethod]
+    public void PendingRecoveryWritesAreSerializedAndLatestDraftWinsAcrossCollectionSwitches()
+    {
+        var inbox = ControlledStorage.Record("Inbox", "saved");
+        var archived = ControlledStorage.Record("Archive", "saved") with { IsArchived = true };
+        var storage = new SerializedRecoveryStorage([inbox, archived]);
+        using var fixture = new Fixture(storage);
+        var model = fixture.Model;
+        fixture.Pump(model.StartAsync());
+
+        model.Title.Text = "";
+        model.Body.Text = "version one";
+        fixture.Drain();
+        fixture.Autosave.Fire();
+        fixture.Until(() => storage.Saves.Count == 1);
+
+        model.Body.Text = "version two";
+        fixture.Drain();
+        model.ShowArchive();
+        Assert.AreEqual(1, storage.Saves.Count, "A second write bypassed the per-note writer.");
+
+        storage.Complete(0);
+        fixture.Until(() => storage.Saves.Count == 2);
+        Assert.AreEqual("version two", storage.Saves[1].Draft.Body);
+        storage.Complete(1);
+        fixture.Until(() => !model.IsSaving);
+
+        model.ShowInbox();
+        Assert.AreEqual("version two", model.Body.Text);
+        Assert.IsTrue(model.HasDurableRecoveryDraft);
+    }
+
+    [TestMethod]
+    public void StaleRecoveredDraftConflictsUntilExplicitRetry()
+    {
+        using var fixture = new Fixture();
+        var id = Guid.NewGuid();
+        var seedTask = NoteStore.OpenAsync(fixture.DatabasePath);
+        fixture.Pump(seedTask);
+        var seed = seedTask.Result;
+        var firstTask = seed.SaveAsync(new(id, NoteKind.Note, "First", null, "one", 0));
+        fixture.Pump(firstTask);
+        var first = firstTask.Result;
+        fixture.Pump(
+            seed.SaveRecoveryDraftAsync(new(id, NoteKind.Note, "", null, "draft", first.Revision))
+        );
+        var secondTask = seed.SaveAsync(
+            new(id, NoteKind.Note, "Other window", null, "two", first.Revision)
+        );
+        fixture.Pump(secondTask);
+        fixture.Pump(seed.DisposeAsync().AsTask());
+
+        var model = fixture.Model;
+        fixture.Pump(model.StartAsync());
+        Assert.AreEqual("draft", model.Body.Text);
+        model.Title.Text = "Corrected recovery";
+        fixture.Drain();
+        Assert.IsTrue(model.SaveCommand.TryExecute());
+        fixture.Until(() => !model.SaveCommand.IsBusy && model.HasError);
+        StringAssert.Contains(model.StatusText, "changed on disk");
+
+        var inspectTask = NoteStore.OpenAsync(fixture.DatabasePath);
+        fixture.Pump(inspectTask);
+        var inspect = inspectTask.Result;
+        var unchangedTask = inspect.GetAsync(id);
+        fixture.Pump(unchangedTask);
+        Assert.AreEqual("Other window", unchangedTask.Result!.Title);
+        fixture.Pump(inspect.DisposeAsync().AsTask());
+
+        fixture.Execute(model.RetryCommand);
+        Assert.AreEqual("Corrected recovery", model.Selected.Value!.Title);
+        Assert.IsFalse(model.HasRecoveryDraft);
+    }
+
+    [TestMethod]
+    public void RetriedOffscreenRecoveryIsReconciledAsDurableAndAllowsClose()
+    {
+        var first = ControlledStorage.Record("First", "saved");
+        var second = ControlledStorage.Record("Second", "saved") with { IsArchived = true };
+        var storage = new RetryableRecoveryStorage([first, second]);
+        using var fixture = new Fixture(storage);
+        var model = fixture.Model;
+        fixture.Pump(model.StartAsync());
+
+        model.Title.Text = "";
+        model.Body.Text = "recover me";
+        fixture.Drain();
+        fixture.Autosave.Fire();
+        fixture.Until(() => storage.Pending is not null);
+        storage.Fail(new IOException("disk unavailable"));
+        fixture.Until(() => model.HasError);
+
+        model.ShowArchive();
+        Assert.AreEqual(second.Id, model.Selected.Value?.Id);
+        fixture.Execute(model.RetryCommand);
+        model.ShowInbox();
+        Assert.AreEqual(first.Id, model.Selected.Value?.Id);
+        Assert.AreEqual("recover me", model.Body.Text);
+        Assert.IsTrue(model.HasDurableRecoveryDraft);
+        var close = model.PrepareCloseAsync().AsTask();
+        fixture.Pump(close);
+        Assert.IsTrue(close.Result);
+    }
+
+    [TestMethod]
+    public void RecoveredDraftCanBeExplicitlyDiscardedToLastValidSave()
+    {
+        using var fixture = new Fixture();
+        var seed = NoteStore.OpenAsync(fixture.DatabasePath);
+        fixture.Pump(seed);
+        var id = Guid.NewGuid();
+        var saved = seed.Result.SaveAsync(
+            new NoteDraft(id, NoteKind.Link, "Last valid", "https://example.com", "saved", 0)
+        );
+        fixture.Pump(saved);
+        fixture.Pump(
+            seed.Result.SaveRecoveryDraftAsync(
+                new NoteDraft(id, NoteKind.Link, "", "https://", "recovered", saved.Result.Revision)
+            )
+        );
+        fixture.Pump(seed.Result.DisposeAsync().AsTask());
+
+        var model = fixture.Model;
+        fixture.Pump(model.StartAsync());
+        Assert.AreEqual("", model.Title.Text);
+        Assert.AreEqual("recovered", model.Body.Text);
+        Assert.IsTrue(model.DiscardDraftCommand.IsEnabled);
+
+        fixture.Execute(model.DiscardDraftCommand);
+        Assert.AreEqual("Last valid", model.Title.Text);
+        Assert.AreEqual("https://example.com", model.Url.Text);
+        Assert.AreEqual("saved", model.Body.Text);
+        Assert.IsFalse(model.IsDirty);
+        Assert.IsFalse(model.DiscardDraftCommand.IsEnabled);
+    }
+
+    [TestMethod]
+    public void CollectionSwitchRestoresSelectionQueryAndScrollBeforeRefreshCompletes()
+    {
+        var inboxOne = ControlledStorage.Record("Inbox one", "one");
+        var inboxTwo = ControlledStorage.Record("Inbox two", "two");
+        var archiveOne = ControlledStorage.Record("Archive one", "one") with { IsArchived = true };
+        var archiveTwo = ControlledStorage.Record("Archive two", "two") with { IsArchived = true };
+        var all = new[] { inboxOne, inboxTwo, archiveOne, archiveTwo };
+        var storage = new DelayedReloadStorage(all, all);
+        using var fixture = new Fixture(storage);
+        var model = fixture.Model;
+        fixture.Pump(model.StartAsync());
+
+        model.Select(inboxTwo.Id);
+        fixture.Until(() => model.Selected.Value?.Id == inboxTwo.Id);
+        model.Search.Text = "Inbox two";
+        model.CollectionViewport.Offset = new ScrollOffset(0, 120);
+
+        model.ShowArchive();
+        fixture.Drain();
+        Assert.IsTrue(model.ShowArchived.Value);
+        Assert.AreEqual("", model.Query);
+        Assert.AreEqual(archiveOne.Id, model.Selected.Value?.Id);
+        Assert.AreEqual(new ScrollOffset(0, 0), model.CollectionViewport.Offset);
+        Assert.IsTrue(storage.ReloadPending);
+
+        model.Search.Text = "Archive two";
+        model.Select(archiveTwo.Id);
+        fixture.Until(() => model.Selected.Value?.Id == archiveTwo.Id);
+        model.CollectionViewport.Offset = new ScrollOffset(0, 240);
+        storage.CompleteReload();
+        fixture.Until(() => !storage.ReloadPending);
+
+        model.ShowInbox();
+        fixture.Drain();
+        Assert.IsFalse(model.ShowArchived.Value);
+        Assert.AreEqual("Inbox two", model.Query);
+        Assert.AreEqual(inboxTwo.Id, model.Selected.Value?.Id);
+        Assert.AreEqual(new ScrollOffset(0, 120), model.CollectionViewport.Offset);
+
+        model.ShowArchive();
+        fixture.Drain();
+        Assert.AreEqual("Archive two", model.Query);
+        Assert.AreEqual(archiveTwo.Id, model.Selected.Value?.Id);
+        Assert.AreEqual(new ScrollOffset(0, 240), model.CollectionViewport.Offset);
+    }
+
+    [TestMethod]
+    public void RecordTargetedArchiveDoesNotNavigateAwayFromTheActiveEditor()
+    {
+        using var fixture = new Fixture();
+        var model = fixture.Model;
+        fixture.Pump(model.StartAsync());
+        model.Capture.Text = "Keep open";
+        fixture.Execute(model.CaptureCommand);
+        var active = model.Selected.Value!.Id;
+        model.Capture.Text = "Archive from row menu";
+        fixture.Execute(model.CaptureCommand);
+        var target = model.Selected.Value!.Id;
+        model.Open(active);
+        fixture.Until(() => model.Selected.Value?.Id == active && !model.IsBusy);
+        model.Body.Text = "Active editor draft stays here";
+
+        model.SetArchived(target, archived: true);
+        fixture.Until(() => !model.IsBusy);
+
+        Assert.AreEqual(active, model.Selected.Value?.Id);
+        Assert.AreEqual("Active editor draft stays here", model.Body.Text);
+        Assert.IsFalse(model.VisibleItems.Any(item => item.Id == target));
+        Assert.IsFalse(model.CanOpenRecordLink(target));
     }
 
     [TestMethod]
@@ -495,6 +775,21 @@ public sealed class WorkspaceTests
             Model = storage is null
                 ? new(_scope, DatabasePath, LinkOpener, Autosave)
                 : new(_scope, DatabasePath, LinkOpener, Autosave, _ => Task.FromResult(storage));
+        }
+
+        public Fixture(Exception startupFailure)
+        {
+            SetSynchronizationContext(this);
+            _scope = _graph.CreateScope("workspace-test");
+            LinkOpener = new();
+            Autosave = new();
+            Model = new(
+                _scope,
+                DatabasePath,
+                LinkOpener,
+                Autosave,
+                _ => Task.FromException<INoteWorkspaceStorage>(startupFailure)
+            );
         }
 
         public string DatabasePath => Path.Combine(_directory, "notes.db");
@@ -619,6 +914,8 @@ public sealed class WorkspaceTests
         );
         private int _listCalls;
 
+        public bool ReloadPending => _listCalls > 1 && !_reload.Task.IsCompleted;
+
         public bool HasUnresolvedWriteFailures => false;
 
         public void CompleteReload() => _reload.SetResult(reloaded);
@@ -703,5 +1000,163 @@ public sealed class WorkspaceTests
             public TaskCompletionSource<NoteRecord> Completion { get; } =
                 new(TaskCreationOptions.RunContinuationsAsynchronously);
         }
+    }
+
+    private sealed class SerializedRecoveryStorage(IReadOnlyList<NoteRecord> records)
+        : INoteWorkspaceStorage
+    {
+        public List<PendingRecovery> Saves { get; } = [];
+        public bool HasUnresolvedWriteFailures => false;
+
+        public Task<NoteRecord> SaveAsync(NoteDraft draft) => throw new NotSupportedException();
+
+        public Task<NoteRecoveryDraft> SaveRecoveryDraftAsync(NoteDraft draft)
+        {
+            var pending = new PendingRecovery(draft);
+            Saves.Add(pending);
+            return pending.Completion.Task;
+        }
+
+        public void Complete(int index)
+        {
+            var pending = Saves[index];
+            pending.Completion.SetResult(
+                new(
+                    pending.Draft.Id,
+                    pending.Draft.Kind,
+                    pending.Draft.Title,
+                    pending.Draft.Url,
+                    pending.Draft.Body,
+                    pending.Draft.ExpectedRevision!.Value,
+                    DateTimeOffset.UtcNow
+                )
+            );
+        }
+
+        public Task<NoteRecord?> GetAsync(Guid id) =>
+            Task.FromResult<NoteRecord?>(records.FirstOrDefault(item => item.Id == id));
+
+        public Task<IReadOnlyList<NoteRecord>> ListAsync(bool includeArchived) =>
+            Task.FromResult(records);
+
+        public Task<NoteRecord> ArchiveAsync(Guid id, bool archived) =>
+            throw new NotSupportedException();
+
+        public Task<WriteRetryResult> RetryFailedWritesAsync() =>
+            Task.FromResult(new WriteRetryResult(0, 0, 0));
+
+        public Task BackupAsync(string destinationPath) => throw new NotSupportedException();
+
+        public Task<bool> PrepareCloseAsync() => Task.FromResult(true);
+
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+
+        public sealed record PendingRecovery(NoteDraft Draft)
+        {
+            public TaskCompletionSource<NoteRecoveryDraft> Completion { get; } =
+                new(TaskCreationOptions.RunContinuationsAsynchronously);
+        }
+    }
+
+    private sealed class RetryableRecoveryStorage(IReadOnlyList<NoteRecord> records)
+        : INoteWorkspaceStorage
+    {
+        private NoteRecoveryDraft? _durable;
+        private TaskCompletionSource<NoteRecoveryDraft>? _completion;
+        public NoteDraft? Pending { get; private set; }
+        public bool HasUnresolvedWriteFailures { get; private set; }
+
+        public Task<NoteRecord> SaveAsync(NoteDraft draft) => throw new NotSupportedException();
+
+        public Task<NoteRecoveryDraft> SaveRecoveryDraftAsync(NoteDraft draft)
+        {
+            Pending = draft;
+            _completion = new(TaskCreationOptions.RunContinuationsAsynchronously);
+            return _completion.Task;
+        }
+
+        public void Fail(Exception error)
+        {
+            HasUnresolvedWriteFailures = true;
+            _completion!.SetException(error);
+        }
+
+        public Task<WriteRetryResult> RetryFailedWritesAsync()
+        {
+            var pending = Pending!;
+            _durable = new(
+                pending.Id,
+                pending.Kind,
+                pending.Title,
+                pending.Url,
+                pending.Body,
+                pending.ExpectedRevision!.Value,
+                DateTimeOffset.UtcNow
+            );
+            HasUnresolvedWriteFailures = false;
+            return Task.FromResult(new WriteRetryResult(1, 1, 0));
+        }
+
+        public Task<IReadOnlyList<NoteRecoveryDraft>> ListRecoveryDraftsAsync() =>
+            Task.FromResult<IReadOnlyList<NoteRecoveryDraft>>(_durable is null ? [] : [_durable]);
+
+        public Task<NoteRecord?> GetAsync(Guid id) =>
+            Task.FromResult<NoteRecord?>(records.FirstOrDefault(item => item.Id == id));
+
+        public Task<IReadOnlyList<NoteRecord>> ListAsync(bool includeArchived) =>
+            Task.FromResult(records);
+
+        public Task<NoteRecord> ArchiveAsync(Guid id, bool archived) =>
+            throw new NotSupportedException();
+
+        public Task BackupAsync(string destinationPath) => throw new NotSupportedException();
+
+        public Task<bool> PrepareCloseAsync() => Task.FromResult(!HasUnresolvedWriteFailures);
+
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+    }
+
+    private sealed class PendingRecoveryStorage(IReadOnlyList<NoteRecord> records)
+        : INoteWorkspaceStorage
+    {
+        private readonly TaskCompletionSource<NoteRecoveryDraft> _recovery = new(
+            TaskCreationOptions.RunContinuationsAsynchronously
+        );
+        private NoteDraft? _pending;
+
+        public bool HasUnresolvedWriteFailures { get; private set; }
+
+        public Task<NoteRecord> SaveAsync(NoteDraft draft) => throw new NotSupportedException();
+
+        public Task<NoteRecoveryDraft> SaveRecoveryDraftAsync(NoteDraft draft)
+        {
+            _pending = draft;
+            return _recovery.Task;
+        }
+
+        public void FailRecovery(Exception error)
+        {
+            Assert.IsNotNull(_pending);
+            HasUnresolvedWriteFailures = true;
+            _recovery.SetException(error);
+        }
+
+        public Task<NoteRecord?> GetAsync(Guid id) =>
+            Task.FromResult<NoteRecord?>(records.FirstOrDefault(item => item.Id == id));
+
+        public Task<IReadOnlyList<NoteRecord>> ListAsync(bool includeArchived) =>
+            Task.FromResult(records);
+
+        public Task<NoteRecord> ArchiveAsync(Guid id, bool archived) =>
+            throw new NotSupportedException();
+
+        public Task<WriteRetryResult> RetryFailedWritesAsync() =>
+            Task.FromResult(new WriteRetryResult(1, 0, 1));
+
+        public Task BackupAsync(string destinationPath) => throw new NotSupportedException();
+
+        public Task<bool> PrepareCloseAsync() => Task.FromResult(false);
+
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }
 }

@@ -27,6 +27,17 @@ public sealed record NoteRecord(
     DateTimeOffset UpdatedAt
 );
 
+/// <summary>A recoverable editor snapshot kept separately from the last valid note.</summary>
+public sealed record NoteRecoveryDraft(
+    Guid Id,
+    NoteKind Kind,
+    string Title,
+    string? Url,
+    string Body,
+    long BaseRevision,
+    DateTimeOffset UpdatedAt
+);
+
 public sealed record WriteRetryResult(int Retried, int Succeeded, int Remaining);
 
 public sealed class NoteConcurrencyException : InvalidOperationException

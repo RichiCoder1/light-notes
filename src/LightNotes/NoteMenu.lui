@@ -1,0 +1,15 @@
+using LightNotes.Storage;
+namespace LightNotes;
+style NoteMenuStyle {
+    Background: LightNotesTheme.Surface;
+    TextColor: LightNotesTheme.Ink;
+}
+
+public component NoteMenu(NoteWorkspace model, NoteRecord note) {
+    <Menu style={NoteMenuStyle}>
+        <MenuItem onInvoke={() => model.Open(note.Id)} enabled={() => model.CanEdit}>Open note</MenuItem>
+        <MenuItem onInvoke={() => model.OpenRecordLink(note.Id)} enabled={() => model.CanEdit && model.CanOpenRecordLink(note.Id)}>Open web address</MenuItem>
+        <MenuSeparator />
+        <MenuItem onInvoke={() => model.SetArchived(note.Id, !note.IsArchived)} enabled={() => model.CanEdit}>{note.IsArchived ? "Restore to Inbox" : "Archive"}</MenuItem>
+    </Menu>
+}

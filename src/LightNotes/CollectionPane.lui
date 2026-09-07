@@ -109,16 +109,13 @@ style CollectionListStyle {
 }
 
 public component CollectionPane(NoteWorkspace model) {
-    readonly ViewportState viewport = new(owner, name: "notes-list-viewport");
     bool compact = model.IsCompact;
     float? paneWidth = compact ? null : model.IsWide ? 320f : 300f;
     float paneFlex = compact ? 1f : 0f;
     ElementParticipation paneParticipation = !compact || model.ShowCollection ? ElementParticipation.Visible : ElementParticipation.Collapsed;
     bool hasQuery = model.Search.Text.Length != 0;
     bool showList = model.IsReady && model.VisibleItems.Count != 0;
-
     void ClearSearch() => model.Search.Text = string.Empty;
-
     <Column style={CollectionPaneStyle with { Width: paneWidth; MainGrow: paneFlex; MainShrink: paneFlex; Participation: paneParticipation; }} name="notes.collection">
         <Row style={CollectionHeaderStyle} name="notes.collection-header">
             <Text content={() => model.ShowArchived.Value ? "Archive" : "Inbox"} style={CollectionTitleStyle} name="notes.collection-title" />
@@ -135,6 +132,6 @@ public component CollectionPane(NoteWorkspace model) {
         <CollectionLoading model={model} />
         <CollectionError model={model} />
         <CollectionEmpty model={model} clearSearch={ClearSearch} />
-        <VirtualizedList source={() => model.VisibleItems} key={item => item.Id} row={item => NoteRow(model, () => item.Value)} rowHeight={() => 72f} label="Saved notes" viewport={viewport} style={CollectionListStyle with { Participation: showList ? ElementParticipation.Visible : ElementParticipation.Collapsed; }} name="notes.list" />
+        <VirtualizedList source={() => model.VisibleItems} key={item => item.Id} row={item => NoteRow(model, () => item.Value)} rowHeight={() => 72f} label="Saved notes" viewport={model.CollectionViewport} style={CollectionListStyle with { Participation: showList ? ElementParticipation.Visible : ElementParticipation.Collapsed; }} name="notes.list" />
     </Column>
 }
