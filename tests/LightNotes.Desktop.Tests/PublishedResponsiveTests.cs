@@ -50,7 +50,7 @@ public sealed partial class PublishedPersistenceTests
                     "Notes",
                     "A draft kept across window sizes.\nSecond line."
                 );
-                Capture.Element(root).ToFile(Path.Combine(output, "shell-wide.png"));
+                CaptureShell(root, output, "shell-wide.png");
                 ScanShell(process, handle, output, "wide");
                 ResizeClient(process, handle, 900, 640);
                 WaitUntil(
@@ -58,7 +58,7 @@ public sealed partial class PublishedPersistenceTests
                     () => HasField(root, "Search saved items") && HasField(root, "Notes"),
                     "Medium shell omitted a pane."
                 );
-                Capture.Element(root).ToFile(Path.Combine(output, "shell-medium.png"));
+                CaptureShell(root, output, "shell-medium.png");
                 ResizeClient(process, handle, 560, 640);
                 WaitUntil(
                     process,
@@ -76,7 +76,7 @@ public sealed partial class PublishedPersistenceTests
                 );
                 Assert.IsTrue(TryReadValue(root, "Notes", out var body));
                 Assert.AreEqual("A draft kept across window sizes.\nSecond line.", body);
-                Capture.Element(root).ToFile(Path.Combine(output, "shell-compact-editor.png"));
+                CaptureShell(root, output, "shell-compact-editor.png");
                 ScanShell(process, handle, output, "compact-editor");
                 InvokeButton(process, root, "Back to collection");
                 WaitUntil(
@@ -94,9 +94,9 @@ public sealed partial class PublishedPersistenceTests
                         ).Properties.HasKeyboardFocus.Value,
                     "Back did not restore useful keyboard focus."
                 );
-                Capture.Element(root).ToFile(Path.Combine(output, "shell-compact-collection.png"));
+                CaptureShell(root, output, "shell-compact-collection.png");
                 ResizeClient(process, handle, 300, 300, expectMinimum: true);
-                Capture.Element(root).ToFile(Path.Combine(output, "shell-minimum.png"));
+                CaptureShell(root, output, "shell-minimum.png");
                 ScanShell(process, handle, output, "minimum-collection");
                 ResizeClient(process, handle, 1180, 640);
                 WaitUntil(
@@ -118,8 +118,12 @@ public sealed partial class PublishedPersistenceTests
                         ).Properties.HasKeyboardFocus.Value,
                     "Ctrl+N did not focus capture."
                 );
-                InvokeButton(process, root, "Save now");
+                // Autosave can finish during resizing and accessibility scans.
                 WaitForStatus(process, root, "Saved on this device");
+                Assert.IsFalse(
+                    FindByName(root, ControlType.Button, "Save now").IsEnabled,
+                    "Save now should be disabled after autosave has committed the current draft."
+                );
                 Assert.IsTrue(process.CloseMainWindow());
                 Assert.IsTrue(process.WaitForExit(30_000));
                 Assert.AreEqual(0, process.ExitCode);
@@ -133,6 +137,15 @@ public sealed partial class PublishedPersistenceTests
         {
             DeleteTestDataDirectory(dataDirectory);
         }
+    }
+
+    private static void CaptureShell(AutomationElement root, string output, string name)
+    {
+        // UIA/layout readiness can precede the next presented frame. This delay is
+        // only for screenshot evidence; behavioral assertions keep their own waits.
+        Wait.UntilInputIsProcessed();
+        Thread.Sleep(200);
+        Capture.Element(root).ToFile(Path.Combine(output, name));
     }
 
     private static bool HasField(AutomationElement root, string name) =>

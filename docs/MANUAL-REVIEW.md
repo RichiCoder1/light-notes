@@ -58,3 +58,9 @@ Authoring questions to evaluate:
 - Automated accessibility rule scans complement keyboard and screen-reader review; they do not perform the manual Accessibility Insights walkthrough. Offline renderer captures likewise do not prove native focus or an unoccluded desktop screenshot.
 
 Use the review to prioritize the next chunk. Do not grow #80 into a component registry, rich-text editor, full application catalog or release certification exercise.
+
+## Automated closeout, September 6
+
+The published application at 6a44350, consuming Lucent 0.3.0-dev.21.1, passed both maintained desktop tests: physical capture, autosave verified directly in SQLite before closing, reopen, responsive draft retention, compact Back, Ctrl+N focus and native minimum dimensions. Axe.Windows reported zero errors in wide, compact editor and minimum collection scans. Settled screenshots were inspected across the responsive sizes. The tests now account for Save now being disabled after autosave and allow a presented frame to settle before screenshots.
+
+An extra screenshot-confirmation run passed the responsive test; its capture window exited during keyboard input. The earlier successful unchanged capture/persistence test remains the evidence. Logs and images are under ignored `artifacts/desktop/daily-use-closeout`. This automated closeout does not claim a fresh native wheel, broad DPI/theme, screen-reader or manual Accessibility Insights walkthrough. The product and authoring review above is the next step.
