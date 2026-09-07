@@ -18,6 +18,7 @@ style CollectionHeaderStyle {
 }
 
 style CollectionTitleStyle {
+    FontWeight: FontWeight.SemiBold;
     MainGrow: 1;
     MainShrink: 1;
     MinWidth: 0;
@@ -34,6 +35,7 @@ style CollectionCountStyle {
 }
 
 style CompactDestinationStyle {
+    CornerRadius: 5;
     Height: 30;
     Padding: Insets.Symmetric(7, 5);
     Background: LightNotesTheme.Surface;
@@ -49,6 +51,7 @@ style CompactDestinationStyle {
 }
 
 style SearchFieldStyle {
+    CornerRadius: 6;
     Height: 38;
     MinWidth: 0;
     MainShrink: 1;
@@ -60,9 +63,14 @@ style SearchFieldStyle {
         Background: LightNotesTheme.Field;
         FocusRing: LightNotesTheme.KeyboardFocus;
     }
+    when Disabled {
+        Background: LightNotesTheme.Canvas;
+        TextColor: LightNotesTheme.MutedInk;
+    }
 }
 
 style ClearSearchStyle {
+    CornerRadius: 5;
     Height: 30;
     Padding: Insets.Symmetric(8, 5);
     Background: LightNotesTheme.Surface;

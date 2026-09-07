@@ -76,6 +76,10 @@ internal static class LightNotesTheme
         "light-notes-divider-right",
         Border.Hairline(Color.Parse("#D9D6CF"), BorderSides.Right)
     );
+    internal static readonly Token<Border> RowSelectionOutline = new(
+        "light-notes-row-selection-outline",
+        Border.Edges(Color.Parse("#315F7B"), new Insets(3, 0, 0, 0))
+    );
     internal static readonly Token<Border> FieldOutline = new(
         "light-notes-field-outline",
         Border.Uniform(Color.Parse("#B8C0C5"), 1)

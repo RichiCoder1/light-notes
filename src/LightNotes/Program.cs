@@ -27,9 +27,19 @@ internal static class Program
                 session =>
                 {
                     var builder = HostedApplication.CreateBuilder();
-                    builder.Services.AddScoped(_ => new NoteWorkspace(
+                    builder.Services.AddSingleton<IExternalLinkOpener, SystemExternalLinkOpener>();
+                    builder.Services.AddSingleton(TimeProvider.System);
+                    builder.Services.AddScoped<IDebounceScheduler>(
+                        services => new R3DebounceScheduler(
+                            session.Scope,
+                            services.GetRequiredService<TimeProvider>()
+                        )
+                    );
+                    builder.Services.AddScoped(services => new NoteWorkspace(
                         session.Scope,
-                        Path.Combine(dataDirectory, "notes.db")
+                        Path.Combine(dataDirectory, "notes.db"),
+                        services.GetRequiredService<IExternalLinkOpener>(),
+                        services.GetRequiredService<IDebounceScheduler>()
                     ));
                     return builder.Build();
                 },
@@ -66,10 +76,23 @@ internal static class Program
 
     private static async Task<int> MaintainAsync(string[] args, string databasePath)
     {
+        if (args.Length == 3 && args[0] == "--restore")
+        {
+            var destinationDirectory = Path.GetFullPath(args[2]);
+            if (Directory.Exists(destinationDirectory) || File.Exists(destinationDirectory))
+                throw new IOException("Choose a new, unused directory for the restored workspace.");
+            var restoredPath = Path.Combine(destinationDirectory, "notes.db");
+            await NoteStore.RestoreAsync(args[1], restoredPath);
+            Console.WriteLine("Restored " + restoredPath);
+            Console.WriteLine(
+                "Set LIGHT_NOTES_DATA_DIRECTORY to " + destinationDirectory + " to open it."
+            );
+            return 0;
+        }
         if (args.Length != 2 || args[0] is not ("--export" or "--backup"))
         {
             Console.Error.WriteLine(
-                "Usage: LightNotes [--export <new-file.json> | --backup <new-file.db>]"
+                "Usage: LightNotes [--export <new-file.json> | --backup <new-file.db> | --restore <backup.db> <new-directory>]"
             );
             return 2;
         }

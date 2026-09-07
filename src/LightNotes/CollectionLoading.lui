@@ -8,6 +8,7 @@ style LoadingPanelStyle {
 }
 
 style LoadingHeadingStyle {
+    FontWeight: FontWeight.SemiBold;
     FontSize: 18;
     TextColor: LightNotesTheme.Ink;
     TextWrap: TextWrap.WordWithGraphemeFallback;
@@ -16,6 +17,7 @@ style LoadingHeadingStyle {
 }
 
 style LoadingRowStyle {
+    CornerRadius: 4;
     Height: 68;
     Padding: Insets.Symmetric(12, 12);
     Background: LightNotesTheme.Hover;

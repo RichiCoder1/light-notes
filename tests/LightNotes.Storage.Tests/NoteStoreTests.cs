@@ -257,6 +257,201 @@ public sealed class NoteStoreTests
         CollectionAssert.AreEqual(original, await File.ReadAllBytesAsync(destination));
     }
 
+    [TestMethod]
+    public async Task RestoreRoundTripPreservesArchivedMultilineRecordsAndSource()
+    {
+        using var temp = new TempDirectory();
+        var activeId = Guid.NewGuid();
+        var archivedId = Guid.NewGuid();
+        var activeBody = "first line\r\nsecond line\nthird line";
+        var archivedBody = "archived\r\nbody";
+        var backupPath = Path.Combine(temp.Path, "backup.db");
+        var destinationPath = Path.Combine(temp.Path, "restored", "notes.db");
+
+        await using (var store = await NoteStore.OpenAsync(temp.DatabasePath))
+        {
+            await store.SaveAsync(
+                new NoteDraft(activeId, NoteKind.Note, "Active", null, activeBody, 0)
+            );
+            var archived = await store.SaveAsync(
+                new NoteDraft(
+                    archivedId,
+                    NoteKind.Link,
+                    "Archived",
+                    "https://example.test",
+                    archivedBody,
+                    0
+                )
+            );
+            await store.ArchiveAsync(archived.Id, archived: true, archived.Revision);
+            await store.BackupAsync(backupPath);
+        }
+
+        var liveBytes = await File.ReadAllBytesAsync(temp.DatabasePath);
+        var backupBytes = await File.ReadAllBytesAsync(backupPath);
+        var sidecarPath = backupPath + "-shm";
+        var sidecarBytes = new byte[] { 4, 8, 15, 16, 23, 42 };
+        await File.WriteAllBytesAsync(sidecarPath, sidecarBytes);
+
+        await NoteStore.RestoreAsync(backupPath, destinationPath);
+
+        CollectionAssert.AreEqual(liveBytes, await File.ReadAllBytesAsync(temp.DatabasePath));
+        CollectionAssert.AreEqual(backupBytes, await File.ReadAllBytesAsync(backupPath));
+        CollectionAssert.AreEqual(sidecarBytes, await File.ReadAllBytesAsync(sidecarPath));
+        await using var restored = await NoteStore.OpenAsync(destinationPath);
+        var active = await restored.GetAsync(activeId);
+        var archivedRecord = await restored.GetAsync(archivedId);
+        Assert.IsNotNull(active);
+        Assert.IsNotNull(archivedRecord);
+        Assert.AreEqual(activeBody, active.Body);
+        Assert.AreEqual(archivedBody, archivedRecord.Body);
+        Assert.IsTrue(archivedRecord.IsArchived);
+        Assert.AreEqual(2, (await restored.ListAsync(includeArchived: true)).Count);
+    }
+
+    [TestMethod]
+    public async Task RestoreRejectsUnsupportedSchemaWithoutCreatingDestination()
+    {
+        using var temp = new TempDirectory();
+        var sourcePath = Path.Combine(temp.Path, "unsupported.db");
+        var destinationPath = Path.Combine(temp.Path, "restored", "notes.db");
+        using (
+            var connection = new SqliteConnection(
+                new SqliteConnectionStringBuilder
+                {
+                    DataSource = sourcePath,
+                    Mode = SqliteOpenMode.ReadWriteCreate,
+                    Pooling = false,
+                }.ToString()
+            )
+        )
+        {
+            connection.Open();
+            using var command = connection.CreateCommand();
+            command.CommandText = "PRAGMA user_version = 2;";
+            command.ExecuteNonQuery();
+        }
+
+        var exception = await AssertThrowsAsync<UnsupportedSchemaVersionException>(() =>
+            NoteStore.RestoreAsync(sourcePath, destinationPath)
+        );
+        Assert.AreEqual(2, exception.ActualVersion);
+        Assert.IsFalse(File.Exists(destinationPath));
+        AssertNoRestoreTemporaryFiles(destinationPath);
+    }
+
+    [TestMethod]
+    public async Task RestoreRejectsCorruptSourceWithoutCreatingDestination()
+    {
+        using var temp = new TempDirectory();
+        var sourcePath = Path.Combine(temp.Path, "corrupt.db");
+        var destinationPath = Path.Combine(temp.Path, "restored", "notes.db");
+        await File.WriteAllBytesAsync(sourcePath, new byte[] { 0, 1, 2, 3, 5, 8, 13 });
+
+        await AssertThrowsAsync<InvalidDataException>(() =>
+            NoteStore.RestoreAsync(sourcePath, destinationPath)
+        );
+        Assert.IsFalse(File.Exists(destinationPath));
+        AssertNoRestoreTemporaryFiles(destinationPath);
+    }
+
+    [TestMethod]
+    public async Task RestoreRejectsSchemaMissingNotesTable()
+    {
+        using var temp = new TempDirectory();
+        var sourcePath = Path.Combine(temp.Path, "missing-table.db");
+        var destinationPath = Path.Combine(temp.Path, "restored", "notes.db");
+        using (
+            var connection = new SqliteConnection(
+                new SqliteConnectionStringBuilder
+                {
+                    DataSource = sourcePath,
+                    Mode = SqliteOpenMode.ReadWriteCreate,
+                    Pooling = false,
+                }.ToString()
+            )
+        )
+        {
+            connection.Open();
+            using var command = connection.CreateCommand();
+            command.CommandText = "PRAGMA user_version = 1;";
+            command.ExecuteNonQuery();
+        }
+
+        await AssertThrowsAsync<InvalidDataException>(() =>
+            NoteStore.RestoreAsync(sourcePath, destinationPath)
+        );
+        Assert.IsFalse(File.Exists(destinationPath));
+        AssertNoRestoreTemporaryFiles(destinationPath);
+    }
+
+    [TestMethod]
+    public async Task RestoreCleansOwnedTemporaryFilesWhenPublishFails()
+    {
+        using var temp = new TempDirectory();
+        var backupPath = Path.Combine(temp.Path, "backup.db");
+        var destinationPath = Path.Combine(temp.Path, "restored", "notes.db");
+        await using (var store = await NoteStore.OpenAsync(temp.DatabasePath))
+        {
+            await store.SaveAsync(
+                new NoteDraft(Guid.NewGuid(), NoteKind.Note, "Stored", null, "", 0)
+            );
+            await store.BackupAsync(backupPath);
+        }
+
+        var injector = new FailBeforePublish();
+        await AssertThrowsAsync<InjectedStorageException>(() =>
+            NoteStore.RestoreAsync(backupPath, destinationPath, injector)
+        );
+        Assert.IsNotNull(injector.TemporaryPath);
+        Assert.IsFalse(File.Exists(destinationPath));
+        Assert.IsFalse(File.Exists(injector.TemporaryPath!));
+        AssertNoRestoreTemporaryFiles(destinationPath);
+    }
+
+    [TestMethod]
+    public async Task RestoreNeverOverwritesDestinationOrSidecars()
+    {
+        using var temp = new TempDirectory();
+        var backupPath = Path.Combine(temp.Path, "backup.db");
+        var destinationPath = Path.Combine(temp.Path, "restored", "notes.db");
+        await using (var store = await NoteStore.OpenAsync(temp.DatabasePath))
+        {
+            await store.SaveAsync(
+                new NoteDraft(Guid.NewGuid(), NoteKind.Note, "Stored", null, "", 0)
+            );
+            await store.BackupAsync(backupPath);
+        }
+
+        Directory.CreateDirectory(Path.GetDirectoryName(destinationPath)!);
+        var destinationBytes = new byte[] { 9, 9, 7 };
+        var sidecarBytes = new byte[] { 6, 6, 4 };
+        await File.WriteAllBytesAsync(destinationPath, destinationBytes);
+        await File.WriteAllBytesAsync(destinationPath + "-wal", sidecarBytes);
+
+        await AssertThrowsAsync<IOException>(() =>
+            NoteStore.RestoreAsync(backupPath, destinationPath)
+        );
+        CollectionAssert.AreEqual(destinationBytes, await File.ReadAllBytesAsync(destinationPath));
+        CollectionAssert.AreEqual(
+            sidecarBytes,
+            await File.ReadAllBytesAsync(destinationPath + "-wal")
+        );
+        AssertNoRestoreTemporaryFiles(destinationPath);
+    }
+
+    private static void AssertNoRestoreTemporaryFiles(string destinationPath)
+    {
+        var directory = Path.GetDirectoryName(destinationPath);
+        if (directory is null || !Directory.Exists(directory))
+        {
+            return;
+        }
+
+        var pattern = Path.GetFileName(destinationPath) + ".*.restore.tmp*";
+        Assert.AreEqual(0, Directory.GetFiles(directory, pattern).Length);
+    }
+
     private static async Task<TException> AssertThrowsAsync<TException>(Func<Task> action)
         where TException : Exception
     {
@@ -358,6 +553,17 @@ public sealed class NoteStoreTests
             {
                 throw new InjectedStorageException();
             }
+        }
+    }
+
+    private sealed class FailBeforePublish : IStorageRecoveryFailureInjector
+    {
+        public string? TemporaryPath { get; private set; }
+
+        public void BeforePublish(string temporaryPath)
+        {
+            TemporaryPath = temporaryPath;
+            throw new InjectedStorageException();
         }
     }
 

@@ -16,7 +16,7 @@ Failed accepted note writes remain unresolved inside the store and surface on th
 
 ## Workspace drafts
 
-The app serializes capture, save, archive, selection changes and backup through its workspace. Editing is disabled while one operation is pending. Switching records and ordinary close save the current draft first. Validation and write failures preserve the draft and expose Retry. If another instance has updated the selected record, the app keeps the local text and refreshes its expected revision; Retry explicitly saves that draft over the newer record. This is a local conflict escape hatch, not collaborative editing.
+The workspace debounces draft edits for 750 ms and serializes accepted saves. Background autosave keeps editing enabled and preserves editor documents, selection, caret and undo history. Save now/Ctrl+S, switching records, archive, backup and ordinary close flush the current draft first. Other coordinated workspace operations may briefly disable editing. Save feedback tracks the current draft version; an older completion cannot mark a newer edit saved. Validation and write failures preserve the draft and expose Retry. If another instance has updated the selected record, the app keeps the local text and refreshes its expected revision; Retry explicitly saves that draft over the newer record. This is a local conflict escape hatch, not collaborative editing.
 
 ## Schema and recovery
 
@@ -24,4 +24,6 @@ Schema version 1 is recorded in SQLite `user_version`. A new empty database is c
 
 `BackupAsync` uses SQLite's online backup API on the serialized worker. `ExportJsonAsync` writes a source-generated JSON document containing the schema version, export time, and all records, including archived records. Both operations require a destination that does not already exist, so they cannot overwrite a known-good backup or export. Each writes an owned temporary sibling file and renames it without overwrite only after the backup or serialization succeeds.
 
-Recovery for version 1 is intentionally modest: preserve the live database, open a copied backup as a database after closing the app, or use JSON export as a human-readable interchange record. Import and automated repair are deferred until a later schema requires a defined migration path.
+`NoteStore.RestoreAsync` validates the backup's integrity, exact v1 schema and records, copies through SQLite into an owned temporary sibling database, validates the copy, and publishes it without overwrite. It rejects an existing destination database or SQLite sidecars and preserves the recovery source. Cleanup is limited to its owned temporary files.
+
+Run `LightNotes.exe --restore <backup.db> <new-directory>` to restore into a new workspace. The maintenance command branches before opening the default live database and refuses an existing destination directory. Set `LIGHT_NOTES_DATA_DIRECTORY` to the restored directory when you are ready to open it. Keep the original live database and associated files intact. JSON import/merge, automatic repair and future-schema migration remain deferred; recovery does not guess how to repair corrupt or unsupported input.

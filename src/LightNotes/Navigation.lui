@@ -9,6 +9,7 @@ style NavigationStyle {
 }
 
 style NavigationBrandStyle {
+    FontWeight: FontWeight.SemiBold;
     FontSize: 17;
     TextColor: LightNotesTheme.InverseInk;
     Height: 34;
@@ -17,6 +18,8 @@ style NavigationBrandStyle {
 }
 
 style NavigationItemStyle {
+    FontWeight: FontWeight.Medium;
+    CornerRadius: 6;
     Height: 46;
     Padding: Insets.Symmetric(4, 8);
     Background: LightNotesTheme.Navigation;

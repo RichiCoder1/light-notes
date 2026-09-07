@@ -8,4 +8,4 @@ NoteWorkspace still owns search/editor sessions, drafts, selected records, accep
 
 Declaration rules: constant initializers create writable state; other unmarked expressions are read-only derived values. `[Once]` creates a writable initial copy, and `readonly` captures an initial snapshot. Locals within methods and Setup are ordinary C#. Async resources stay explicit; overlapping loads do not imply concurrent mounting.
 
-Review whether these distinctions read clearly while editing CollectionPane. Future work can improve explicit async-resource authoring and separate shell routing/focus after those cross-pane transitions have a clear owner. Record declarations and expression-bodied markup remain future Lucent work.
+Review whether these distinctions read clearly while editing CollectionPane. Lucent's explicit source/fetcher AsyncValue path supports component-owned reads with retry and cancellation. Autosave uses an optional owned R3 adapter; accepted writes remain workspace-owned. Shell routing/focus can be separated after those cross-pane transitions have a clear owner. Record declarations and expression-bodied markup remain future Lucent work.

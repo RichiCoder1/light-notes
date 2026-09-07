@@ -7,6 +7,7 @@ style EmptyCollectionPanelStyle {
 }
 
 style EmptyCollectionHeadingStyle {
+    FontWeight: FontWeight.SemiBold;
     FontSize: 18;
     TextColor: LightNotesTheme.Ink;
     TextWrap: TextWrap.WordWithGraphemeFallback;
@@ -23,6 +24,7 @@ style EmptyCollectionBodyStyle {
 }
 
 style EmptyCollectionActionStyle {
+    CornerRadius: 5;
     Height: 30;
     Padding: Insets.Symmetric(8, 5);
     Background: LightNotesTheme.Surface;

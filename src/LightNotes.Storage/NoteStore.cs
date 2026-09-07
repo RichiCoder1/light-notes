@@ -43,6 +43,40 @@ public sealed class NoteStore : IAsyncDisposable
         CancellationToken cancellationToken = default
     ) => OpenCoreAsync(databasePath, failureInjector, cancellationToken);
 
+    public static Task RestoreAsync(
+        string sourceBackupPath,
+        string destinationDatabasePath,
+        CancellationToken cancellationToken = default
+    )
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(sourceBackupPath);
+        ArgumentException.ThrowIfNullOrWhiteSpace(destinationDatabasePath);
+        return RestoreCoreAsync(
+            sourceBackupPath,
+            destinationDatabasePath,
+            recoveryFailureInjector: null,
+            cancellationToken
+        );
+    }
+
+    internal static Task RestoreAsync(
+        string sourceBackupPath,
+        string destinationDatabasePath,
+        IStorageRecoveryFailureInjector recoveryFailureInjector,
+        CancellationToken cancellationToken = default
+    )
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(sourceBackupPath);
+        ArgumentException.ThrowIfNullOrWhiteSpace(destinationDatabasePath);
+        ArgumentNullException.ThrowIfNull(recoveryFailureInjector);
+        return RestoreCoreAsync(
+            sourceBackupPath,
+            destinationDatabasePath,
+            recoveryFailureInjector,
+            cancellationToken
+        );
+    }
+
     public Task<NoteRecord> SaveAsync(
         NoteDraft draft,
         CancellationToken cancellationToken = default
@@ -287,6 +321,176 @@ public sealed class NoteStore : IAsyncDisposable
             await store.StopAfterFailedOpenAsync().ConfigureAwait(false);
             throw;
         }
+    }
+
+    private static Task RestoreCoreAsync(
+        string sourceBackupPath,
+        string destinationDatabasePath,
+        IStorageRecoveryFailureInjector? recoveryFailureInjector,
+        CancellationToken cancellationToken
+    ) =>
+        Task.Run(
+            () =>
+                Restore(
+                    sourceBackupPath,
+                    destinationDatabasePath,
+                    recoveryFailureInjector,
+                    cancellationToken
+                ),
+            cancellationToken
+        );
+
+    private static void Restore(
+        string sourceBackupPath,
+        string destinationDatabasePath,
+        IStorageRecoveryFailureInjector? recoveryFailureInjector,
+        CancellationToken cancellationToken
+    )
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var source = ValidateExistingSourcePath(sourceBackupPath);
+        var destination = ValidateNewRestoreDestinationPath(source, destinationDatabasePath);
+
+        using var sourceConnection = new SqliteConnection(CreateReadOnlyConnectionString(source));
+        try
+        {
+            sourceConnection.Open();
+        }
+        catch (SqliteException exception)
+        {
+            throw new InvalidDataException(
+                $"The recovery source is not a readable SQLite database: {source}.",
+                exception
+            );
+        }
+
+        ValidateSupportedDatabase(sourceConnection, source);
+        cancellationToken.ThrowIfCancellationRequested();
+        CreateDestinationDirectory(destination);
+        EnsureNewRestoreDestination(destination);
+        var temporaryPath = CreateRestoreTemporaryPath(destination);
+        try
+        {
+            using (var restored = new SqliteConnection(CreateConnectionString(temporaryPath)))
+            {
+                restored.Open();
+                sourceConnection.BackupDatabase(restored);
+            }
+
+            cancellationToken.ThrowIfCancellationRequested();
+            using (
+                var validation = new SqliteConnection(CreateReadOnlyConnectionString(temporaryPath))
+            )
+            {
+                validation.Open();
+                ValidateSupportedDatabase(validation, temporaryPath);
+            }
+
+            EnsureNewRestoreDestination(destination);
+            recoveryFailureInjector?.BeforePublish(temporaryPath);
+            cancellationToken.ThrowIfCancellationRequested();
+            File.Move(temporaryPath, destination, overwrite: false);
+        }
+        finally
+        {
+            CleanupRestoreTemporaryDatabase(temporaryPath, destination);
+        }
+    }
+
+    private static string ValidateExistingSourcePath(string sourceBackupPath)
+    {
+        var source = Path.GetFullPath(sourceBackupPath);
+        if (!File.Exists(source))
+        {
+            throw new FileNotFoundException(
+                $"The recovery source database was not found: {source}.",
+                source
+            );
+        }
+
+        return source;
+    }
+
+    private static string ValidateNewRestoreDestinationPath(
+        string source,
+        string destinationDatabasePath
+    )
+    {
+        var destination = Path.GetFullPath(destinationDatabasePath);
+        if (string.Equals(source, destination, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new ArgumentException(
+                "The restore destination must differ from the recovery source.",
+                nameof(destinationDatabasePath)
+            );
+        }
+
+        EnsureNewRestoreDestination(destination);
+        return destination;
+    }
+
+    private static void EnsureNewRestoreDestination(string destination)
+    {
+        if (File.Exists(destination) || Directory.Exists(destination))
+        {
+            throw new IOException($"Restore destination already exists: {destination}.");
+        }
+
+        foreach (var suffix in new[] { "-journal", "-wal", "-shm" })
+        {
+            var sidecar = destination + suffix;
+            if (File.Exists(sidecar) || Directory.Exists(sidecar))
+            {
+                throw new IOException(
+                    $"Restore destination has an existing SQLite sidecar: {sidecar}."
+                );
+            }
+        }
+    }
+
+    private static string CreateRestoreTemporaryPath(string destination)
+    {
+        var temporaryPath =
+            destination
+            + "."
+            + Guid.NewGuid().ToString("N", CultureInfo.InvariantCulture)
+            + ".restore.tmp";
+        if (!IsOwnedRestoreTemporaryPath(temporaryPath, destination))
+        {
+            throw new IOException("The generated restore temporary path was invalid.");
+        }
+
+        if (File.Exists(temporaryPath) || Directory.Exists(temporaryPath))
+        {
+            throw new IOException($"Restore temporary path already exists: {temporaryPath}.");
+        }
+
+        return temporaryPath;
+    }
+
+    private static void CleanupRestoreTemporaryDatabase(string temporaryPath, string destination)
+    {
+        if (IsOwnedRestoreTemporaryPath(temporaryPath, destination))
+        {
+            DeleteOwnedSqliteFiles(temporaryPath);
+        }
+    }
+
+    private static bool IsOwnedRestoreTemporaryPath(string temporaryPath, string destination)
+    {
+        var temporary = Path.GetFullPath(temporaryPath);
+        var target = Path.GetFullPath(destination);
+        var temporaryDirectory = Path.GetDirectoryName(temporary);
+        var targetDirectory = Path.GetDirectoryName(target);
+        var temporaryName = Path.GetFileName(temporary);
+        var targetName = Path.GetFileName(target);
+        return string.Equals(
+                temporaryDirectory,
+                targetDirectory,
+                StringComparison.OrdinalIgnoreCase
+            )
+            && temporaryName.StartsWith(targetName + ".", StringComparison.Ordinal)
+            && temporaryName.EndsWith(".restore.tmp", StringComparison.Ordinal);
     }
 
     private async Task StopAfterFailedOpenAsync()
@@ -594,6 +798,161 @@ public sealed class NoteStore : IAsyncDisposable
         command.Parameters.AddWithValue("$now", now);
     }
 
+    private static void ValidateSupportedDatabase(SqliteConnection connection, string databasePath)
+    {
+        try
+        {
+            var version = ReadSchemaVersion(connection);
+            if (version != SchemaVersion)
+            {
+                throw new UnsupportedSchemaVersionException(version, SchemaVersion);
+            }
+
+            ValidateIntegrity(connection, databasePath);
+            ValidateNotesSchema(connection, databasePath);
+            foreach (var record in ReadAll(connection, includeArchived: true))
+            {
+                ValidateRecoveredRecord(record, databasePath);
+            }
+        }
+        catch (UnsupportedSchemaVersionException)
+        {
+            throw;
+        }
+        catch (InvalidDataException)
+        {
+            throw;
+        }
+        catch (Exception exception)
+            when (exception
+                    is SqliteException
+                        or FormatException
+                        or OverflowException
+                        or InvalidCastException
+            )
+        {
+            throw new InvalidDataException(
+                $"The recovery database failed validation: {databasePath}.",
+                exception
+            );
+        }
+    }
+
+    private static int ReadSchemaVersion(SqliteConnection connection)
+    {
+        using var command = connection.CreateCommand();
+        command.CommandText = "PRAGMA user_version;";
+        return Convert.ToInt32(command.ExecuteScalar(), CultureInfo.InvariantCulture);
+    }
+
+    private static void ValidateIntegrity(SqliteConnection connection, string databasePath)
+    {
+        using var command = connection.CreateCommand();
+        command.CommandText = "PRAGMA integrity_check;";
+        using var reader = command.ExecuteReader();
+        if (!reader.Read())
+        {
+            throw new InvalidDataException(
+                $"The recovery database returned no integrity result: {databasePath}."
+            );
+        }
+
+        do
+        {
+            var result = reader.IsDBNull(0) ? string.Empty : reader.GetString(0);
+            if (!string.Equals(result, "ok", StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidDataException(
+                    $"The recovery database failed SQLite integrity_check: {result}."
+                );
+            }
+        } while (reader.Read());
+    }
+
+    private static void ValidateNotesSchema(SqliteConnection connection, string databasePath)
+    {
+        using (var objectCommand = connection.CreateCommand())
+        {
+            objectCommand.CommandText = "SELECT type FROM sqlite_master WHERE name = $name;";
+            objectCommand.Parameters.AddWithValue("$name", "notes");
+            if (
+                !string.Equals(
+                    objectCommand.ExecuteScalar()?.ToString(),
+                    "table",
+                    StringComparison.OrdinalIgnoreCase
+                )
+            )
+            {
+                throw new InvalidDataException(
+                    $"The recovery database does not contain the supported notes table: {databasePath}."
+                );
+            }
+        }
+
+        var expected = new[]
+        {
+            (Name: "id", Type: "TEXT", NotNull: 1, PrimaryKey: 1),
+            (Name: "kind", Type: "INTEGER", NotNull: 1, PrimaryKey: 0),
+            (Name: "title", Type: "TEXT", NotNull: 1, PrimaryKey: 0),
+            (Name: "url", Type: "TEXT", NotNull: 0, PrimaryKey: 0),
+            (Name: "body", Type: "TEXT", NotNull: 1, PrimaryKey: 0),
+            (Name: "archived", Type: "INTEGER", NotNull: 1, PrimaryKey: 0),
+            (Name: "revision", Type: "INTEGER", NotNull: 1, PrimaryKey: 0),
+            (Name: "created_utc", Type: "TEXT", NotNull: 1, PrimaryKey: 0),
+            (Name: "updated_utc", Type: "TEXT", NotNull: 1, PrimaryKey: 0),
+        };
+
+        using var command = connection.CreateCommand();
+        command.CommandText = "PRAGMA table_info(notes);";
+        using var reader = command.ExecuteReader();
+        var index = 0;
+        while (reader.Read())
+        {
+            if (index >= expected.Length)
+            {
+                throw new InvalidDataException(
+                    $"The recovery database has unsupported notes columns: {databasePath}."
+                );
+            }
+
+            var actual = expected[index];
+            if (
+                !string.Equals(reader.GetString(1), actual.Name, StringComparison.Ordinal)
+                || !string.Equals(
+                    reader.GetString(2),
+                    actual.Type,
+                    StringComparison.OrdinalIgnoreCase
+                )
+                || reader.GetInt32(3) != actual.NotNull
+                || reader.GetInt32(5) != actual.PrimaryKey
+            )
+            {
+                throw new InvalidDataException(
+                    $"The recovery database has an unsupported notes schema: {databasePath}."
+                );
+            }
+
+            index++;
+        }
+
+        if (index != expected.Length)
+        {
+            throw new InvalidDataException(
+                $"The recovery database has an incomplete notes schema: {databasePath}."
+            );
+        }
+    }
+
+    private static void ValidateRecoveredRecord(NoteRecord record, string databasePath)
+    {
+        if (record.Id == Guid.Empty || !Enum.IsDefined(record.Kind) || record.Revision < 1)
+        {
+            throw new InvalidDataException(
+                $"The recovery database contains an invalid note record: {databasePath}."
+            );
+        }
+    }
+
     private static void InitializeSchema(SqliteConnection connection)
     {
         using (var command = connection.CreateCommand())
@@ -692,6 +1051,15 @@ public sealed class NoteStore : IAsyncDisposable
         {
             DataSource = path,
             Mode = SqliteOpenMode.ReadWriteCreate,
+            Cache = SqliteCacheMode.Private,
+            Pooling = false,
+        }.ToString();
+
+    private static string CreateReadOnlyConnectionString(string path) =>
+        new SqliteConnectionStringBuilder
+        {
+            DataSource = path,
+            Mode = SqliteOpenMode.ReadOnly,
             Cache = SqliteCacheMode.Private,
             Pooling = false,
         }.ToString();

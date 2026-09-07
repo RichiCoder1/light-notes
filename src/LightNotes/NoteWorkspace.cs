@@ -6,23 +6,59 @@ namespace LightNotes;
 /// <summary>Application-owned drafts and save coordination, independent of mounted controls.</summary>
 public sealed class NoteWorkspace : IAsyncDisposable
 {
+    private static readonly TimeSpan AutosaveDelay = TimeSpan.FromMilliseconds(750);
     private readonly string _databasePath;
-    private NoteStore? _store;
+    private readonly IExternalLinkOpener _linkOpener;
+    private readonly IDebounceScheduler _autosave;
+    private readonly Func<string, Task<INoteWorkspaceStorage>> _openStore;
+    private INoteWorkspaceStorage? _store;
     private Task _pending = Task.CompletedTask;
+    private Task _saveLoop = Task.CompletedTask;
     private Func<Task>? _retry;
     private Guid? _captureId;
     private bool _closing;
+    private long _draftVersion;
+    private long _savedDraftVersion;
+    private long _requestedSaveVersion;
+    private DraftContent? _observedDraft;
+    private DraftSnapshot? _latestDraft;
+    private Exception? _saveFailure;
     private readonly Signal<bool> _needsSave;
     private readonly Signal<bool> _ready;
     private readonly Signal<bool> _busy;
+    private readonly Signal<bool> _saving;
     private readonly Signal<string?> _error;
+    private readonly Signal<string> _errorHeading;
     private readonly Signal<string> _status;
     private readonly Signal<IReadOnlyList<NoteRecord>> _allItems;
     private readonly Signal<NoteWorkspaceRoute> _route;
 
-    public NoteWorkspace(ReactiveScope owner, string databasePath)
+    public NoteWorkspace(
+        ReactiveScope owner,
+        string databasePath,
+        IExternalLinkOpener linkOpener,
+        IDebounceScheduler autosave
+    )
+        : this(
+            owner,
+            databasePath,
+            linkOpener,
+            autosave,
+            async path => new NoteWorkspaceStorage(await NoteStore.OpenAsync(path))
+        ) { }
+
+    internal NoteWorkspace(
+        ReactiveScope owner,
+        string databasePath,
+        IExternalLinkOpener linkOpener,
+        IDebounceScheduler autosave,
+        Func<string, Task<INoteWorkspaceStorage>> openStore
+    )
     {
         _databasePath = Path.GetFullPath(databasePath);
+        _linkOpener = linkOpener ?? throw new ArgumentNullException(nameof(linkOpener));
+        _autosave = autosave ?? throw new ArgumentNullException(nameof(autosave));
+        _openStore = openStore ?? throw new ArgumentNullException(nameof(openStore));
         Capture = new(owner, "capture", name: "capture");
         Title = new(owner, "empty", name: "title");
         Url = new(owner, "empty", name: "url");
@@ -41,8 +77,11 @@ public sealed class NoteWorkspace : IAsyncDisposable
         _needsSave = owner.Signal(false, "needs-save");
         _ready = owner.Signal(false, "storage-ready");
         _busy = owner.Signal(false, "workspace-busy");
+        _saving = owner.Signal(false, "workspace-saving");
         _error = owner.Signal<string?>(null, "save-error");
+        _errorHeading = owner.Signal("Could not save", "error-heading");
         _status = owner.Signal("Opening your notes...", "save-status");
+        _ = owner.Effect(ObserveDraft, "draft-autosave");
         CaptureCommand = new(
             owner,
             _ => Run(CaptureAsync, "Saving..."),
@@ -60,6 +99,12 @@ public sealed class NoteWorkspace : IAsyncDisposable
             _ => Run(ArchiveAsync, "Saving..."),
             () => CanEdit && Selected.Value is not null,
             "archive-note"
+        );
+        OpenLinkCommand = new(
+            owner,
+            _ => Run(OpenLinkAsync, "Opening link...", "Could not open link"),
+            () => CanEdit && CanOpenLink,
+            "open-link"
         );
         RetryCommand = new(
             owner,
@@ -129,25 +174,39 @@ public sealed class NoteWorkspace : IAsyncDisposable
     public ApplicationCommand CaptureCommand { get; }
     public ApplicationCommand SaveCommand { get; }
     public ApplicationCommand ArchiveCommand { get; }
+    public ApplicationCommand OpenLinkCommand { get; }
     public ApplicationCommand RetryCommand { get; }
     public ApplicationCommand BackupCommand { get; }
     public ApplicationCommand ToggleArchiveCommand { get; }
     public CommandBindings Bindings { get; }
     public bool IsReady => _ready.Value;
     public bool IsBusy => _busy.Value;
+    public bool IsSaving => _saving.Value;
     public bool CanEdit => IsReady && !IsBusy && !_closing;
-    public bool IsDirty =>
-        Selected.Value is { } item
-        && (
-            _needsSave.Value
-            || Title.Text != item.Title
-            || Url.Text != (item.Url ?? "")
-            || Body.Text != item.Body
-        );
+    public bool CanOpenLink => TryGetSelectedWebUri(out _);
+    public bool IsDirty
+    {
+        get
+        {
+            var selected = Selected.Value;
+            var title = Title.Text;
+            var url = Url.Text;
+            var body = Body.Text;
+            return selected is { } item
+                && (
+                    _needsSave.Value
+                    || _latestDraft is { } latest && latest.Version > _savedDraftVersion
+                    || title != item.Title
+                    || url != (item.Url ?? "")
+                    || body != item.Body
+                );
+        }
+    }
     public string StatusText =>
-        _error.Value is { } error ? "Could not save. " + error + " Retry to keep your changes."
+        _error.Value is { } error ? _errorHeading.Value + ". " + error
         : IsBusy ? _status.Value
-        : IsDirty ? "Unsaved changes - Ctrl+S to save"
+        : IsSaving ? "Saving..."
+        : IsDirty ? "Saving changes..."
         : _status.Value;
 
     /// <summary>Gets whether the store is still loading and has not reported an error.</summary>
@@ -158,6 +217,9 @@ public sealed class NoteWorkspace : IAsyncDisposable
 
     /// <summary>Gets the store failure text, when one is available.</summary>
     public string? ErrorMessage => _error.Value;
+
+    /// <summary>Gets a short semantic heading for the current operation failure.</summary>
+    public string ErrorHeading => _errorHeading.Value;
 
     /// <summary>Gets the current plain-text query mirrored by the Search editor session.</summary>
     public string Query => Search.Text;
@@ -189,7 +251,7 @@ public sealed class NoteWorkspace : IAsyncDisposable
     public int InboxCount => _allItems.Value.Count(item => !item.IsArchived);
     public int ArchiveCount => _allItems.Value.Count(item => item.IsArchived);
 
-    public Task StartAsync() => Run(LoadAsync, "Opening your notes...");
+    public Task StartAsync() => Run(LoadAsync, "Opening your notes...", "Could not open notes");
 
     /// <summary>Returns the compact shell to its collection route while retaining the editor draft.</summary>
     public void BackToCollection()
@@ -264,50 +326,40 @@ public sealed class NoteWorkspace : IAsyncDisposable
         BackToCollection();
     }
 
-    private Task Run(Func<Task> action, string status)
+    private Task Run(Func<Task> action, string status, string errorHeading = "Could not save")
     {
         if (IsBusy)
             return _pending;
-        _pending = RunCore(action, status);
+        _pending = RunCore(action, status, errorHeading);
         return _pending;
     }
 
-    private async Task RunCore(Func<Task> action, string status)
+    private async Task RunCore(Func<Task> action, string status, string errorHeading)
     {
         _busy.Value = true;
-        _error.Value = null;
+        var preservingWriteFailure = HasPendingWriteFailure;
+        if (!preservingWriteFailure)
+            _error.Value = null;
         _status.Value = status;
         try
         {
             await action();
-            _retry = null;
+            if (!HasPendingWriteFailure)
+            {
+                _retry = null;
+                _error.Value = null;
+            }
             if (_status.Value == status)
                 _status.Value = "Saved on this device";
         }
         catch (Exception error)
         {
-            if (action != RetryAsync)
+            if (action != RetryAsync && !preservingWriteFailure)
                 _retry = action;
-            _error.Value = error.Message;
-            if (
-                error is NoteConcurrencyException conflict
-                && _store is not null
-                && Selected.Value?.Id == conflict.NoteId
-            )
+            if (!preservingWriteFailure && !ReferenceEquals(error, _saveFailure))
             {
-                try
-                {
-                    if (await _store.GetAsync(conflict.NoteId) is { } latest)
-                    {
-                        Selected.Value = latest;
-                        _needsSave.Value = true;
-                        _error.Value =
-                            "This note changed on disk. Your draft is kept; Retry saves it over the newer version.";
-                    }
-                }
-                catch
-                { /* Keep the original failure and draft when refresh also fails. */
-                }
+                _error.Value = error.Message;
+                _errorHeading.Value = errorHeading;
             }
         }
         finally
@@ -318,7 +370,7 @@ public sealed class NoteWorkspace : IAsyncDisposable
 
     private async Task LoadAsync()
     {
-        _store ??= await NoteStore.OpenAsync(_databasePath);
+        _store ??= await _openStore(_databasePath);
         await RefreshAsync();
         SelectRecord((VisibleItems.Count == 0 ? null : VisibleItems[0]));
         _route.Value = NoteWorkspaceRoute.Collection;
@@ -357,34 +409,179 @@ public sealed class NoteWorkspace : IAsyncDisposable
         }
     }
 
-    private async Task SaveCurrentAsync()
+    private void ObserveDraft()
     {
-        if (Selected.Value is not { } item || !IsDirty)
+        var selected = Selected.Value;
+        if (!_ready.Value || selected is null)
             return;
-        if (string.IsNullOrWhiteSpace(Title.Text))
+
+        var content = CurrentDraft(selected.Id);
+        if (_observedDraft == content)
+            return;
+
+        var hadPendingSave =
+            !_saveLoop.IsCompleted
+            || _savedDraftVersion < _requestedSaveVersion
+            || HasPendingWriteFailure;
+        _observedDraft = content;
+        _draftVersion = checked(_draftVersion + 1);
+        _latestDraft = new(_draftVersion, content);
+        if (Matches(content, selected) && !_needsSave.Value && !hadPendingSave)
+        {
+            _autosave.Cancel();
+            _savedDraftVersion = _draftVersion;
+            _requestedSaveVersion = _draftVersion;
+            return;
+        }
+
+        var scheduledVersion = _draftVersion;
+        _autosave.Restart(AutosaveDelay, () => QueueAutosave(scheduledVersion));
+    }
+
+    private DraftContent CurrentDraft(Guid id)
+    {
+        var url = string.IsNullOrWhiteSpace(Url.Text) ? null : Url.Text;
+        return new(id, url is null ? NoteKind.Note : NoteKind.Link, Title.Text, url, Body.Text);
+    }
+
+    private static bool Matches(DraftContent draft, NoteRecord record) =>
+        draft.Id == record.Id
+        && draft.Kind == record.Kind
+        && draft.Title == record.Title
+        && draft.Url == record.Url
+        && draft.Body == record.Body;
+
+    private void QueueAutosave(long version)
+    {
+        if (_closing || _latestDraft is not { } latest || latest.Version != version)
+            return;
+        RequestSave(version);
+    }
+
+    private void RequestSave(long version)
+    {
+        _requestedSaveVersion = Math.Max(_requestedSaveVersion, version);
+        if (_saveLoop.IsCompleted)
+            _saveLoop = SaveLoopAsync();
+    }
+
+    private async Task SaveLoopAsync()
+    {
+        _saving.Value = true;
+        try
+        {
+            while (_savedDraftVersion < _requestedSaveVersion)
+            {
+                if (_latestDraft is not { } snapshot)
+                    return;
+                if (snapshot.Version > _requestedSaveVersion)
+                    return;
+                if (Selected.Value is not { } selected || selected.Id != snapshot.Content.Id)
+                    return;
+
+                NoteRecord saved;
+                try
+                {
+                    saved = await Store.SaveAsync(ToDraft(snapshot.Content, selected.Revision));
+                }
+                catch (Exception error)
+                {
+                    await RecordSaveFailureAsync(error, snapshot.Content.Id);
+                    return;
+                }
+
+                _savedDraftVersion = Math.Max(_savedDraftVersion, snapshot.Version);
+                _saveFailure = null;
+                _error.Value = null;
+                if (Selected.Value?.Id == saved.Id)
+                    Selected.Value = saved;
+                ReplaceRecord(saved);
+                if (_latestDraft is { } latest && latest.Version == snapshot.Version)
+                {
+                    _needsSave.Value = false;
+                    _status.Value = "Saved on this device";
+                }
+            }
+        }
+        finally
+        {
+            _saving.Value = false;
+        }
+    }
+
+    private bool HasPendingWriteFailure =>
+        _saveFailure is not null || (_store?.HasUnresolvedWriteFailures ?? false);
+
+    private static NoteDraft ToDraft(DraftContent content, long expectedRevision)
+    {
+        if (string.IsNullOrWhiteSpace(content.Title))
             throw new ArgumentException("Give this note a title before saving.");
         if (
-            !string.IsNullOrWhiteSpace(Url.Text)
+            content.Url is { } value
             && (
-                !Uri.TryCreate(Url.Text, UriKind.Absolute, out var url)
+                !Uri.TryCreate(value, UriKind.Absolute, out var url)
                 || url.Scheme is not ("http" or "https")
             )
         )
             throw new ArgumentException(
                 "Use a complete http or https link, or leave the URL empty."
             );
-        var draft = new NoteDraft(
-            item.Id,
-            string.IsNullOrWhiteSpace(Url.Text) ? NoteKind.Note : NoteKind.Link,
-            Title.Text,
-            string.IsNullOrWhiteSpace(Url.Text) ? null : Url.Text,
-            Body.Text,
-            item.Revision
+        return new(
+            content.Id,
+            content.Kind,
+            content.Title,
+            content.Url,
+            content.Body,
+            expectedRevision
         );
-        var saved = await Store.SaveAsync(draft);
-        Selected.Value = saved;
-        _needsSave.Value = false;
-        await RefreshAsync();
+    }
+
+    private async Task RecordSaveFailureAsync(Exception error, Guid noteId)
+    {
+        _saveFailure = error;
+        _errorHeading.Value = "Could not save";
+        _error.Value = error.Message;
+        _retry = SaveCurrentAsync;
+        if (error is not NoteConcurrencyException conflict || conflict.NoteId != noteId)
+            return;
+        try
+        {
+            if (await Store.GetAsync(noteId) is { } latest && Selected.Value?.Id == noteId)
+            {
+                Selected.Value = latest;
+                _needsSave.Value = true;
+                _error.Value =
+                    "This note changed on disk. Your draft is kept; Retry saves it over the newer version.";
+            }
+        }
+        catch
+        { /* Keep the original failure and draft when refresh also fails. */
+        }
+    }
+
+    private async Task SaveCurrentAsync()
+    {
+        if (Selected.Value is not { } selected || !IsDirty)
+            return;
+
+        ObserveDraft();
+        _autosave.Cancel();
+        var target = _latestDraft?.Version ?? _draftVersion;
+        RequestSave(target);
+        await _saveLoop;
+        if (_savedDraftVersion < target && _saveFailure is { } failure)
+            throw failure;
+    }
+
+    private void ReplaceRecord(NoteRecord saved)
+    {
+        _allItems.Value = _allItems
+            .Value.Where(item => item.Id != saved.Id)
+            .Append(saved)
+            .OrderByDescending(item => item.UpdatedAt)
+            .ThenBy(item => item.Id)
+            .ToArray();
+        ApplyFilter();
     }
 
     private async Task ArchiveAsync()
@@ -399,6 +596,32 @@ public sealed class NoteWorkspace : IAsyncDisposable
     }
 
     private Task ToggleArchiveAsync() => SetCollectionAsync(!ShowArchived.Value);
+
+    private async Task OpenLinkAsync()
+    {
+        if (!TryGetSelectedWebUri(out var uri))
+            throw new InvalidOperationException(
+                "The selected note does not have a valid web link."
+            );
+        await _linkOpener.OpenAsync(uri);
+        _status.Value = "Opened link";
+    }
+
+    private bool TryGetSelectedWebUri(out Uri uri)
+    {
+        if (
+            Selected.Value is not null
+            && Url.Text is { } value
+            && Uri.TryCreate(value, UriKind.Absolute, out var parsed)
+            && parsed.Scheme is "http" or "https"
+        )
+        {
+            uri = parsed;
+            return true;
+        }
+        uri = null!;
+        return false;
+    }
 
     private async Task RefreshAsync()
     {
@@ -425,12 +648,21 @@ public sealed class NoteWorkspace : IAsyncDisposable
 
     private void SelectRecord(NoteRecord? item)
     {
+        _autosave.Cancel();
         _needsSave.Value = false;
         Selected.Value = item;
         var id = item?.Id.ToString() ?? "empty";
         Title.SwitchDocument(id, item?.Title ?? "");
         Url.SwitchDocument(id, item?.Url ?? "");
         Body.SwitchDocument(id, item?.Body ?? "");
+        _draftVersion = checked(_draftVersion + 1);
+        _observedDraft = item is null
+            ? null
+            : new(item.Id, item.Kind, item.Title, item.Url, item.Body);
+        _latestDraft = _observedDraft is { } content ? new(_draftVersion, content) : null;
+        _savedDraftVersion = _draftVersion;
+        _requestedSaveVersion = _draftVersion;
+        _saveFailure = null;
     }
 
     private async Task RetryAsync()
@@ -451,7 +683,7 @@ public sealed class NoteWorkspace : IAsyncDisposable
                         captured.Kind == NoteKind.Link ? captured.Url : captured.Body;
                     if (Capture.Text.Trim() == capturedText)
                         Capture.Text = "";
-                    Selected.Value = captured;
+                    SelectRecord(captured);
                 }
             }
         }
@@ -461,11 +693,13 @@ public sealed class NoteWorkspace : IAsyncDisposable
             await LoadAsync();
         if (_store is not null)
         {
+            var selectedId = Selected.Value?.Id;
             await RefreshAsync();
-            SelectRecord(
-                Items.Value.FirstOrDefault(item => item.Id == Selected.Value?.Id)
-                    ?? (Items.Value.Count == 0 ? null : Items.Value[0])
-            );
+            var refreshed = Items.Value.FirstOrDefault(item => item.Id == selectedId);
+            if (refreshed is not null)
+                Selected.Value = refreshed;
+            else
+                SelectRecord(Items.Value.Count == 0 ? null : Items.Value[0]);
         }
     }
 
@@ -484,17 +718,10 @@ public sealed class NoteWorkspace : IAsyncDisposable
     public async ValueTask<bool> PrepareCloseAsync()
     {
         _closing = true;
+        _autosave.Cancel();
         await _pending;
         if (_store is null)
             return true;
-        if (
-            _error.Value is not null
-            && (IsDirty || _store.HasUnresolvedWriteFailures || _captureId is not null)
-        )
-        {
-            _closing = false;
-            return false;
-        }
         await Run(SaveCurrentAsync, "Finishing your save...");
         if (_error.Value is not null)
         {
@@ -505,11 +732,13 @@ public sealed class NoteWorkspace : IAsyncDisposable
         {
             if (await _store.PrepareCloseAsync())
                 return true;
+            _errorHeading.Value = "Could not save";
             _error.Value = "Some accepted changes are not yet saved.";
             _retry = SaveCurrentAsync;
         }
         catch (Exception error)
         {
+            _errorHeading.Value = "Could not save";
             _error.Value = error.Message;
             _retry = SaveCurrentAsync;
         }
@@ -517,13 +746,32 @@ public sealed class NoteWorkspace : IAsyncDisposable
         return false;
     }
 
-    private NoteStore Store =>
+    private INoteWorkspaceStorage Store =>
         _store ?? throw new InvalidOperationException("Your notes are still opening.");
 
     public async ValueTask DisposeAsync()
     {
+        _autosave.Cancel();
         await _pending;
-        if (_store is not null)
-            await _store.DisposeAsync();
+        await _saveLoop;
+        try
+        {
+            if (_store is not null)
+                await _store.DisposeAsync();
+        }
+        finally
+        {
+            _autosave.Dispose();
+        }
     }
+
+    private readonly record struct DraftContent(
+        Guid Id,
+        NoteKind Kind,
+        string Title,
+        string? Url,
+        string Body
+    );
+
+    private readonly record struct DraftSnapshot(long Version, DraftContent Content);
 }

@@ -13,6 +13,7 @@
     <ProjectReference Include="../LightNotes.Storage/LightNotes.Storage.csproj" />
     <PackageReference Include="Lucent.Platform.Windows" Version="[$(LucentVersion)]" />
     <PackageReference Include="Lucent.Hosting" Version="[$(LucentVersion)]" />
+    <PackageReference Include="Lucent.Reactive.R3" Version="[$(LucentVersion)]" />
     <None
       Include="../../notices/*"
       Link="notices/%(Filename)%(Extension)"

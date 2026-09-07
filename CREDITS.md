@@ -15,3 +15,7 @@ The composition uses Lucent's standard control theme with application-owned pres
 [FlaUI.UIA3 5.0.0](https://github.com/FlaUI/FlaUI) (MIT) drives the optional published desktop checks through Windows UI Automation. It follows Lucent's existing test-driver choice and is not shipped with Light Notes. MSTest 4.4 supplies the maintained Microsoft test runner.
 
 [Axe.Windows 2.4.2](https://github.com/microsoft/axe-windows) (MIT) supplies targeted automated accessibility rule scans in the opt-in desktop test suite. It is not shipped with the app.
+
+## Reactive scheduling
+
+[R3 1.3.1](https://github.com/Cysharp/R3) (Cysharp, MIT) provides the quiet-period debounce through Lucent's optional `Lucent.Reactive.R3` package. The integration uses an explicit TimeProvider, marshals callbacks to the workspace owner, and cancels pending callbacks with that lifetime. The app retains ownership of accepted writes and uses a small scheduler interface for deterministic workflow tests. This does not replace Lucent's reactive graph.

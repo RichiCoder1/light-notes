@@ -110,7 +110,9 @@ public sealed class ShellPresentationTests
         scrollAnchor = Semantic(composition, scrollAnchorLabel, SemanticRole.ListItem);
         Assert.AreEqual(
             retainedScrollAnchorY,
-            medium.Boxes.Single(box => box.Identity.ElementId == scrollAnchor.Identity.ElementId).Bounds.Y,
+            medium
+                .Boxes.Single(box => box.Identity.ElementId == scrollAnchor.Identity.ElementId)
+                .Bounds.Y,
             0.01f,
             "Medium resize reset list scroll."
         );
@@ -165,7 +167,9 @@ public sealed class ShellPresentationTests
         scrollAnchor = Semantic(composition, scrollAnchorLabel, SemanticRole.ListItem);
         Assert.AreEqual(
             retainedScrollAnchorY,
-            compactCollection.Boxes.Single(box => box.Identity.ElementId == scrollAnchor.Identity.ElementId).Bounds.Y,
+            compactCollection
+                .Boxes.Single(box => box.Identity.ElementId == scrollAnchor.Identity.ElementId)
+                .Bounds.Y,
             0.01f,
             "Compact Back reset list scroll."
         );
@@ -238,7 +242,9 @@ public sealed class ShellPresentationTests
         scrollAnchor = Semantic(composition, scrollAnchorLabel, SemanticRole.ListItem);
         Assert.AreEqual(
             retainedScrollAnchorY,
-            returnedWide.Boxes.Single(box => box.Identity.ElementId == scrollAnchor.Identity.ElementId).Bounds.Y,
+            returnedWide
+                .Boxes.Single(box => box.Identity.ElementId == scrollAnchor.Identity.ElementId)
+                .Bounds.Y,
             0.01f,
             "Bidirectional resize reset list scroll."
         );
@@ -439,6 +445,58 @@ public sealed class ShellPresentationTests
         AssertSemantic(composition, title, false, "no-results hidden editor");
     }
 
+    [TestMethod]
+    public void StartupFailureKeepsErrorAndRetryInsideMinimumViewport()
+    {
+        const string errorMessage =
+            "The notes database could not be opened because the local folder is temporarily unavailable. Retry after the folder is available again.";
+        using var fixture = new Fixture(new IOException(errorMessage));
+        var model = fixture.Model;
+        fixture.Pump(model.StartAsync());
+        Assert.IsTrue(model.HasError, "Injected startup failure did not reach the workspace.");
+        Assert.IsFalse(model.IsReady, "Failed startup incorrectly marked the workspace ready.");
+        Assert.IsTrue(model.RetryCommand.IsEnabled, "Failed startup did not expose retry.");
+
+        using var composition = new Composition(fixture.Graph, "light-notes-error-review");
+        using var theme = new ThemeContext(composition.Root.Scope, LightNotesTheme.Create());
+        composition.Mount(composition.Root, theme, global::LightNotes.Components.AppView(model));
+        using var renderer = new SkiaSceneRenderer();
+        var scene = Scenario(
+            fixture,
+            composition,
+            renderer,
+            model,
+            "minimum-storage-error",
+            480,
+            520,
+            1.5f
+        );
+        var heading = Semantic(composition, "Couldn't open your notes", SemanticRole.Text);
+        var detail = Semantic(composition, errorMessage, SemanticRole.Text);
+        var retry = Semantic(composition, "Retry", SemanticRole.Button);
+        AssertInsideViewport(scene, 480, 520, heading, detail, retry);
+        AssertWraps(scene, detail, "startup storage failure detail");
+        var headingBounds = scene
+            .Boxes.Single(box => box.Identity.ElementId == heading.Identity.ElementId)
+            .Bounds;
+        var detailBounds = scene
+            .Boxes.Single(box => box.Identity.ElementId == detail.Identity.ElementId)
+            .Bounds;
+        var retryBounds = scene
+            .Boxes.Single(box => box.Identity.ElementId == retry.Identity.ElementId)
+            .Bounds;
+        Assert.IsTrue(
+            headingBounds.Y + headingBounds.Height <= detailBounds.Y + 1f
+                && detailBounds.Y + detailBounds.Height <= retryBounds.Y + 1f,
+            $"Minimum-size error content overlaps: heading={headingBounds}; detail={detailBounds}; retry={retryBounds}."
+        );
+        Assert.AreEqual(
+            "Could not open notes",
+            model.ErrorHeading,
+            "Startup failure lost its operation-specific model heading."
+        );
+    }
+
     private static RetainedScene Scenario(
         Fixture fixture,
         Composition composition,
@@ -636,6 +694,22 @@ public sealed class ShellPresentationTests
     private static IEnumerable<SemanticSnapshot> Descendants(SemanticSnapshot? root) =>
         root is null ? [] : new[] { root }.Concat(root.Children.SelectMany(Descendants));
 
+    // Offscreen layout scenarios hold time still; autosave timing is covered by WorkspaceTests.
+    private sealed class PausedDebounce : IDebounceScheduler
+    {
+        public void Restart(TimeSpan delay, Action callback) { }
+
+        public void Cancel() { }
+
+        public void Dispose() { }
+    }
+
+    private sealed class NoExternalLinks : IExternalLinkOpener
+    {
+        public Task OpenAsync(Uri uri, CancellationToken cancellationToken = default) =>
+            throw new InvalidOperationException("Offscreen review must not open a browser.");
+    }
+
     private sealed class Fixture : SynchronizationContext, IDisposable
     {
         private readonly SynchronizationContext? _prior = Current;
@@ -645,14 +719,27 @@ public sealed class ShellPresentationTests
             "light-notes-shell-" + Guid.NewGuid().ToString("N")
         );
 
-        internal Fixture()
+        internal Fixture(Exception? startupFailure = null)
         {
             Directory.CreateDirectory(_directory);
             ReviewSamples.SeedAsync(DatabasePath).GetAwaiter().GetResult();
             SetSynchronizationContext(this);
             Graph = new ReactiveGraph();
             Scope = Graph.CreateScope("shell-review-model");
-            Model = new NoteWorkspace(Scope, DatabasePath);
+            Model = startupFailure is null
+                ? new NoteWorkspace(
+                    Scope,
+                    DatabasePath,
+                    new NoExternalLinks(),
+                    new PausedDebounce()
+                )
+                : new NoteWorkspace(
+                    Scope,
+                    DatabasePath,
+                    new NoExternalLinks(),
+                    new PausedDebounce(),
+                    _ => Task.FromException<INoteWorkspaceStorage>(startupFailure)
+                );
         }
 
         internal string DatabasePath => Path.Combine(_directory, "notes.db");

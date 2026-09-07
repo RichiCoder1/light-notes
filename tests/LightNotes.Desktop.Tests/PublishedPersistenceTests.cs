@@ -6,6 +6,7 @@ using FlaUI.Core.Definitions;
 using FlaUI.Core.Exceptions;
 using FlaUI.Core.Input;
 using FlaUI.UIA3;
+using Microsoft.Data.Sqlite;
 
 namespace LightNotes.Desktop.Tests;
 
@@ -15,7 +16,7 @@ public sealed partial class PublishedPersistenceTests
     private static readonly TimeSpan Timeout = TimeSpan.FromSeconds(30);
 
     [TestMethod]
-    public void PublishedCaptureSaveAndReopenRetainsTheEditedNote()
+    public void PublishedCaptureAutosaveAndReopenRetainsTheEditedNote()
     {
         var dataDirectory = CreateTestDataDirectory();
         try
@@ -68,8 +69,12 @@ public sealed partial class PublishedPersistenceTests
 
                     SetFieldValue(process, root, "Title", "Persisted title");
                     SetFieldValue(process, root, "Notes", "Persisted body");
-                    WaitForStatus(process, root, "Unsaved changes");
-                    InvokeButton(process, root, "Save now");
+                    // Prove autosave committed while the app is open; close-time flush must not satisfy this check.
+                    WaitUntil(
+                        process,
+                        () => HasPersistedDraft(dataDirectory, "Persisted title", "Persisted body"),
+                        "Autosave did not commit the edited draft before closing."
+                    );
                     WaitForStatus(process, root, "Saved on this device");
 
                     var artifactRoot =
@@ -288,6 +293,33 @@ public sealed partial class PublishedPersistenceTests
             return true;
         }
         catch (PatternNotSupportedException)
+        {
+            return false;
+        }
+    }
+
+    private static bool HasPersistedDraft(string directory, string title, string body)
+    {
+        using var connection = new SqliteConnection(
+            new SqliteConnectionStringBuilder
+            {
+                DataSource = Path.Combine(directory, "notes.db"),
+                Mode = SqliteOpenMode.ReadOnly,
+                Pooling = false,
+                DefaultTimeout = 1,
+            }.ToString()
+        );
+        try
+        {
+            connection.Open();
+            using var command = connection.CreateCommand();
+            command.CommandText =
+                "SELECT COUNT(*) FROM notes WHERE title = $title AND body = $body";
+            command.Parameters.AddWithValue("$title", title);
+            command.Parameters.AddWithValue("$body", body);
+            return command.ExecuteScalar() is long count && count == 1;
+        }
+        catch (SqliteException error) when (error.SqliteErrorCode is 5 or 6)
         {
             return false;
         }

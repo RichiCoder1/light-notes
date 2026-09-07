@@ -1,6 +1,9 @@
 using LightNotes.Storage;
 namespace LightNotes;
 style NoteRowStyle {
+    Axis: LayoutAxis.Column;
+    CrossAlignment: LayoutAlignment.Stretch;
+    Spacing: 4;
     Height: 72;
     MinWidth: 0;
     MainShrink: 1;
@@ -11,11 +14,11 @@ style NoteRowStyle {
     TextWrap: TextWrap.WordWithGraphemeFallback;
     MaxLines: 3;
     Overflow: TextOverflow.Ellipsis;
-    Border: LightNotesTheme.DividerBottom;
     when Hover {
         Background: LightNotesTheme.Hover;
     }
     when Selected {
+        Border: LightNotesTheme.RowSelectionOutline;
         Background: LightNotesTheme.Selection;
     }
     when FocusVisible {
@@ -24,12 +27,36 @@ style NoteRowStyle {
     }
 }
 
+style NoteRowTitleStyle {
+    MainGrow: 1;
+    MainShrink: 1;
+    MinHeight: 0;
+    MinWidth: 0;
+    FontSize: 14;
+    FontWeight: FontWeight.SemiBold;
+    TextColor: LightNotesTheme.Ink;
+    TextWrap: TextWrap.WordWithGraphemeFallback;
+    MaxLines: 2;
+    Overflow: TextOverflow.Ellipsis;
+}
+
+style NoteRowMetadataStyle {
+    Height: 16;
+    MinWidth: 0;
+    FontSize: 11;
+    TextColor: LightNotesTheme.MutedInk;
+    MaxLines: 1;
+    Overflow: TextOverflow.Ellipsis;
+}
+
 public component NoteRow(NoteWorkspace model, Func<NoteRecord> item) {
     <Selectable
+        label={() => NotePresentation.RowLabel(item())}
         selected={() => model.Selected.Value != null && model.Selected.Value.Id == item().Id}
         onSelect={() => model.Select(item().Id)}
         style={NoteRowStyle}
         name="notes.row">
-        {() => NotePresentation.RowLabel(item())}
+        <Text style={NoteRowTitleStyle}>{NotePresentation.RowTitle(item())}</Text>
+        <Text style={NoteRowMetadataStyle}>{NotePresentation.RowMetadata(item())}</Text>
     </Selectable>
 }

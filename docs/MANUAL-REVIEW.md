@@ -1,6 +1,6 @@
 # Light Notes review
 
-Review the responsive shell before expanding the daily-use workflow in [Lucent #81](https://github.com/RichiCoder1/lucent/issues/81). This checkpoint covers the app experience and the framework/`.lui` authoring experience. GitHub issue #80 records the exact source, package and verification results.
+Review the daily-use workflow and presentation refinement tracked in [Lucent #81](https://github.com/RichiCoder1/lucent/issues/81) and [#82](https://github.com/RichiCoder1/lucent/issues/82). This checkpoint covers the app experience and the framework/`.lui` authoring experience. The linked issues record exact source, package and verification results; a review checklist is not a claim that those checks have run.
 
 ## Open an isolated review workspace
 
@@ -19,7 +19,7 @@ Start wide, then narrow through the medium rail into a single-pane window. The i
 
 Try these together rather than treating them as release gates:
 
-- Capture a thought and a URL. Edit the title, optional address and multiline note; save, archive, restore, close and reopen.
+- Capture a thought and a URL. Edit the title, optional address and multiline note; pause for autosave, keep typing through a save, use Save now, archive, restore, close and reopen. Open the current address in your browser.
 - Compare the selected row with keyboard focus. Tab through the shell, use Ctrl+N for capture, Ctrl+F for search and Ctrl+S to save. Check whether the focus destination after Back feels right.
 - Search similar titles, clear the query, and try a phrase with no results. Switch between Inbox and Archive at compact width too.
 - Open the longest title, address and note. Read and edit near the end, then narrow to the minimum size. Look for clipped actions, cramped text and confusing scroll ownership.
@@ -42,17 +42,17 @@ Authoring questions to evaluate:
 - Text controls need deliberate cross-axis stretching and shrink bounds when content can exceed the viewport. Review whether the defaults and diagnostics make this clear, especially for long single-line values inside a column.
 - Are typed tokens and `style with { ... }` readable for reactive widths, participation and enabled state? Would named responsive variants improve the common case?
 - Does owning `EditorSession`, `ViewportState`, responsive constraints and focus targets in the model make lifetime clear without excessive plumbing?
-- Is a row composed of text and a selection surface expressive enough? The current row does not yet have a rich independently styled metadata/content slot.
+- Selectable now separates its live accessible label from composed visual content. NoteRow gives the title and metadata independent styles. Review whether that distinction stays clear while authoring richer rows.
 - How much can you understand and change using `.lui` alone? Record places requiring unnecessary knowledge of generated C#, the public component catalog or diagnostics.
 
 ## Known scope and follow-up notes
 
-- Saving is still explicit through Save now/Ctrl+S, with save-before-switch/close coordination. Autosave/debounce, richer operation feedback and the complete capture workflow belong to #81.
+- Autosave waits for a 750 ms quiet period. Save now/Ctrl+S and save-before-switch/close remain explicit paths; edits during an accepted write retain their own version and editor continuity.
 - Search filters the currently loaded collection in memory. It is not a paged or indexed large-library search implementation.
-- Opening external links is deferred to #81. There is no decorative Open action pretending to implement it.
+- Open accepts only absolute HTTP/HTTPS links and reports failures separately from save failures. It uses the current address draft.
 - This slice defines a light application palette. A complete app dark/high-contrast palette and a broad appearance walkthrough remain follow-up work; the underlying framework settings do not automatically supply application token variants.
-- A reusable icon/vector seam and rounded surfaces are not introduced here. The medium rail keeps full destination names. Review whether icons would materially help before adding a framework dependency or asset pipeline.
-- Storage failures keep the draft and retry path, but error presentation still exposes some store-level detail. There is no full recovery/settings experience, import merge, sync or encryption feature.
+- Rounded fields and stronger typography now use reusable presentation properties. A reusable icon/vector seam remains future work. The medium rail keeps full destination names. Review whether icons would materially help before adding a framework dependency or asset pipeline.
+- Storage failures keep the draft and retry path, but error presentation still exposes some store-level detail. Validated backup restoration is available through the maintenance command into a new workspace. There is no full recovery/settings UI, import merge, sync or encryption feature.
 - Alt+Left is not bound globally: the current command scope consumes disabled declared shortcuts too. Compact Back and Ctrl+F provide collection navigation; a compact-only Back chord can be considered with the remaining keyboard workflow.
 - UI authoring still combines Lucent style declarations and C# expressions. In particular, types and statically imported property names can collide; explicit type qualification may be needed. This is an authoring ergonomics note, not a claim that `.lui` is a CSS implementation.
 - Automated accessibility rule scans complement keyboard and screen-reader review; they do not perform the manual Accessibility Insights walkthrough. Offline renderer captures likewise do not prove native focus or an unoccluded desktop screenshot.

@@ -5,15 +5,22 @@ namespace LightNotes;
 /// <summary>Pure presentation text for note rows and collection states.</summary>
 internal static class NotePresentation
 {
-    internal static string RowLabel(NoteRecord item)
+    internal static string RowLabel(NoteRecord item) => $"{RowTitle(item)}\n{RowMetadata(item)}";
+
+    internal static string RowTitle(NoteRecord item)
     {
         ArgumentNullException.ThrowIfNull(item);
-        var title = SingleLine(item.Title);
+        return SingleLine(item.Title);
+    }
+
+    internal static string RowMetadata(NoteRecord item)
+    {
+        ArgumentNullException.ThrowIfNull(item);
         var kind = item.Kind == NoteKind.Link ? "LINK" : "NOTE";
         var edited = item
             .UpdatedAt.ToLocalTime()
             .ToString("MMM d · h:mm tt", System.Globalization.CultureInfo.CurrentCulture);
-        return $"{title}\n{kind} · edited {edited}";
+        return $"{kind} · edited {edited}";
     }
 
     internal static string CollectionCount(NoteWorkspace model) =>

@@ -209,6 +209,195 @@ public sealed class WorkspaceTests
         Assert.IsTrue(close.Result);
     }
 
+    [TestMethod]
+    public void LateAutosaveCompletionDoesNotMarkANewerDraftSavedOrResetItsEditor()
+    {
+        var original = ControlledStorage.Record("Original", "Original body");
+        var storage = new ControlledStorage(original);
+        using var fixture = new Fixture(storage);
+        var model = fixture.Model;
+        fixture.Pump(model.StartAsync());
+
+        model.Body.Text = "First autosave snapshot";
+        fixture.Drain();
+        fixture.Autosave.Fire();
+        fixture.Until(() => storage.Saves.Count == 1);
+        Assert.IsTrue(model.IsSaving);
+        Assert.IsTrue(model.CanEdit);
+
+        model.Body.Text = "Newer draft while save is pending";
+        model.Body.SetSelection(6, 11);
+        fixture.Drain();
+        Assert.IsTrue(fixture.Autosave.HasPending);
+        storage.CompleteSave(0);
+        fixture.Until(() => !model.IsSaving);
+
+        Assert.AreEqual("Newer draft while save is pending", model.Body.Text);
+        Assert.AreEqual(6, model.Body.Anchor);
+        Assert.AreEqual(11, model.Body.Caret);
+        Assert.IsTrue(model.Body.CanUndo);
+        Assert.IsTrue(model.IsDirty);
+        Assert.AreEqual("First autosave snapshot", model.Selected.Value!.Body);
+
+        fixture.Autosave.Fire();
+        fixture.Until(() => storage.Saves.Count == 2);
+        Assert.AreEqual(2, storage.Saves[1].Draft.ExpectedRevision);
+        storage.CompleteSave(1);
+        fixture.Until(() => !model.IsSaving && !model.IsDirty);
+        Assert.AreEqual("Newer draft while save is pending", model.Selected.Value!.Body);
+    }
+
+    [TestMethod]
+    public void RevertingToPersistedDraftWhileAutosaveIsInFlightFlushesTheReversionOnClose()
+    {
+        var original = ControlledStorage.Record("Original", "Original body");
+        var storage = new ControlledStorage(original);
+        using var fixture = new Fixture(storage);
+        var model = fixture.Model;
+        fixture.Pump(model.StartAsync());
+
+        model.Body.Text = "Pending different body";
+        fixture.Drain();
+        fixture.Autosave.Fire();
+        fixture.Until(() => storage.Saves.Count == 1);
+
+        model.Body.Text = original.Body;
+        fixture.Drain();
+        Assert.IsTrue(model.IsDirty);
+
+        var close = model.PrepareCloseAsync().AsTask();
+        Assert.IsFalse(close.IsCompleted);
+
+        storage.CompleteSave(0);
+        fixture.Until(() => storage.Saves.Count == 2);
+        Assert.AreEqual(original.Body, storage.Saves[1].Draft.Body);
+        Assert.AreEqual(2, storage.Saves[1].Draft.ExpectedRevision);
+
+        storage.CompleteSave(1);
+        fixture.Until(() => close.IsCompleted);
+        Assert.IsTrue(close.Result);
+        Assert.AreEqual(original.Body, storage.Current.Body);
+    }
+
+    [TestMethod]
+    public void RevertingToPersistedDraftBeforeDebouncePublishesCleanReactiveWorkspaceState()
+    {
+        var original = ControlledStorage.Record("Original", "Original body");
+        var storage = new ControlledStorage(original);
+        using var fixture = new Fixture(storage);
+        var model = fixture.Model;
+        fixture.Pump(model.StartAsync());
+        var observations = new List<(bool Dirty, string Status, bool SaveEnabled)>();
+        fixture.Observe(() =>
+            observations.Add((model.IsDirty, model.StatusText, model.SaveCommand.IsEnabled))
+        );
+        fixture.Drain();
+        observations.Clear();
+
+        model.Body.Text = "Draft B";
+        fixture.Drain();
+        Assert.IsTrue(fixture.Autosave.HasPending);
+        Assert.AreEqual(0, storage.Saves.Count);
+        Assert.IsTrue(observations[^1].Dirty);
+        Assert.AreEqual("Saving changes...", observations[^1].Status);
+        Assert.IsTrue(observations[^1].SaveEnabled);
+
+        model.Body.Undo();
+        fixture.Drain();
+
+        Assert.AreEqual(original.Body, model.Body.Text);
+        Assert.IsFalse(fixture.Autosave.HasPending);
+        Assert.AreEqual(0, storage.Saves.Count);
+        Assert.IsFalse(observations[^1].Dirty);
+        Assert.AreEqual("Saved on this device", observations[^1].Status);
+        Assert.IsFalse(observations[^1].SaveEnabled);
+    }
+
+    [TestMethod]
+    public void AutosaveValidationFailureKeepsTheDraftAndRetrySavesTheCorrection()
+    {
+        using var fixture = new Fixture();
+        var model = fixture.Model;
+        fixture.Pump(model.StartAsync());
+        model.Capture.Text = "A valid starting note";
+        fixture.Execute(model.CaptureCommand);
+
+        model.Title.Text = "";
+        fixture.Drain();
+        fixture.Autosave.Fire();
+        fixture.Until(() => model.HasError && !model.IsSaving);
+
+        Assert.IsTrue(model.IsDirty);
+        Assert.IsTrue(model.RetryCommand.IsEnabled);
+        Assert.AreEqual("", model.Title.Text);
+        StringAssert.Contains(model.StatusText, "Give this note a title");
+
+        model.Url.Text = "https://example.com/still-show-save-failure";
+        fixture.Execute(model.OpenLinkCommand);
+        Assert.IsTrue(model.HasError);
+        StringAssert.Contains(model.StatusText, "Give this note a title");
+
+        model.Title.Text = "Corrected after autosave failure";
+        fixture.Drain();
+        fixture.Execute(model.RetryCommand);
+        Assert.IsFalse(model.IsDirty);
+        Assert.AreEqual("Corrected after autosave failure", model.Selected.Value!.Title);
+    }
+
+    [TestMethod]
+    public void OpenLinkUsesTheInjectedBoundedServiceWithoutChangingTheDraft()
+    {
+        using var fixture = new Fixture();
+        var model = fixture.Model;
+        fixture.Pump(model.StartAsync());
+        model.Capture.Text = "https://example.com/notes?id=81";
+        fixture.Execute(model.CaptureCommand);
+        model.Url.Text = "https://example.com/edited-before-save";
+        model.Body.Text = "Keep this unsaved edit and its undo history.";
+        model.Body.SetSelection(5, 9);
+
+        Assert.IsTrue(model.CanOpenLink);
+        fixture.Execute(model.OpenLinkCommand);
+
+        Assert.AreEqual(
+            new Uri("https://example.com/edited-before-save"),
+            fixture.LinkOpener.Opened
+        );
+        Assert.AreEqual("Keep this unsaved edit and its undo history.", model.Body.Text);
+        Assert.AreEqual(5, model.Body.Anchor);
+        Assert.AreEqual(9, model.Body.Caret);
+        Assert.IsTrue(model.Body.CanUndo);
+        Assert.IsTrue(model.IsDirty);
+    }
+
+    [TestMethod]
+    public void OpenLinkFailureHasAnOperationSpecificHeadingAndDoesNotBrowseAgain()
+    {
+        using var fixture = new Fixture();
+        var model = fixture.Model;
+        fixture.Pump(model.StartAsync());
+        model.Capture.Text = "https://example.com/failure";
+        fixture.Execute(model.CaptureCommand);
+        fixture.LinkOpener.Failure = new IOException("No registered browser accepted the link.");
+
+        fixture.Execute(model.OpenLinkCommand);
+
+        Assert.AreEqual(1, fixture.LinkOpener.CallCount);
+        Assert.AreEqual("Could not open link", model.ErrorHeading);
+        StringAssert.Contains(model.StatusText, "No registered browser");
+    }
+
+    [TestMethod]
+    public void SystemLinkOpenerRejectsUnsupportedSchemesBeforePlatformLaunch()
+    {
+        Assert.ThrowsExactly<ArgumentException>(() =>
+            SystemExternalLinkOpener.Validate(new Uri("file:///C:/notes.txt"))
+        );
+        Assert.ThrowsExactly<ArgumentException>(() =>
+            SystemExternalLinkOpener.Validate(new Uri("mailto:notes@example.com"))
+        );
+    }
+
     private sealed class Fixture : SynchronizationContext, IDisposable
     {
         private readonly SynchronizationContext? _prior = Current;
@@ -220,14 +409,20 @@ public sealed class WorkspaceTests
             "light-notes-model-" + Guid.NewGuid().ToString("N")
         );
 
-        public Fixture()
+        public Fixture(INoteWorkspaceStorage? storage = null)
         {
             SetSynchronizationContext(this);
             _scope = _graph.CreateScope("workspace-test");
-            Model = new(_scope, DatabasePath);
+            LinkOpener = new();
+            Autosave = new();
+            Model = storage is null
+                ? new(_scope, DatabasePath, LinkOpener, Autosave)
+                : new(_scope, DatabasePath, LinkOpener, Autosave, _ => Task.FromResult(storage));
         }
 
         public string DatabasePath => Path.Combine(_directory, "notes.db");
+        public FakeLinkOpener LinkOpener { get; }
+        public ManualDebounceScheduler Autosave { get; }
         public NoteWorkspace Model { get; }
 
         public override void Post(SendOrPostCallback callback, object? state) =>
@@ -261,6 +456,10 @@ public sealed class WorkspaceTests
             _graph.Drain();
         }
 
+        public void Drain() => _graph.Drain();
+
+        public void Observe(Action callback) => _scope.Effect(callback, "workspace-observer");
+
         public void Dispose()
         {
             try
@@ -286,6 +485,111 @@ public sealed class WorkspaceTests
                     );
                 Directory.Delete(full, true);
             }
+        }
+    }
+
+    private sealed class FakeLinkOpener : IExternalLinkOpener
+    {
+        public Uri? Opened { get; private set; }
+
+        public int CallCount { get; private set; }
+
+        public Exception? Failure { get; set; }
+
+        public Task OpenAsync(Uri uri, CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            Opened = uri;
+            CallCount++;
+            return Failure is null ? Task.CompletedTask : Task.FromException(Failure);
+        }
+    }
+
+    private sealed class ManualDebounceScheduler : IDebounceScheduler
+    {
+        private Action? _pending;
+
+        public bool HasPending => _pending is not null;
+
+        public int RestartCount { get; private set; }
+
+        public void Restart(TimeSpan delay, Action callback)
+        {
+            Assert.AreEqual(TimeSpan.FromMilliseconds(750), delay);
+            _pending = callback;
+            RestartCount++;
+        }
+
+        public void Cancel() => _pending = null;
+
+        public void Fire()
+        {
+            var callback = _pending ?? throw new InvalidOperationException("Nothing is scheduled.");
+            _pending = null;
+            callback();
+        }
+
+        public void Dispose() => Cancel();
+    }
+
+    private sealed class ControlledStorage(NoteRecord initial) : INoteWorkspaceStorage
+    {
+        public List<PendingSave> Saves { get; } = [];
+
+        public NoteRecord Current { get; private set; } = initial;
+
+        public bool HasUnresolvedWriteFailures => false;
+
+        public Task<NoteRecord> SaveAsync(NoteDraft draft)
+        {
+            var pending = new PendingSave(draft);
+            Saves.Add(pending);
+            return pending.Completion.Task;
+        }
+
+        public void CompleteSave(int index)
+        {
+            var pending = Saves[index];
+            Current = Current with
+            {
+                Kind = pending.Draft.Kind,
+                Title = pending.Draft.Title,
+                Url = pending.Draft.Url,
+                Body = pending.Draft.Body,
+                Revision = Current.Revision + 1,
+                UpdatedAt = DateTimeOffset.UtcNow,
+            };
+            pending.Completion.SetResult(Current);
+        }
+
+        public Task<NoteRecord?> GetAsync(Guid id) =>
+            Task.FromResult<NoteRecord?>(id == Current.Id ? Current : null);
+
+        public Task<IReadOnlyList<NoteRecord>> ListAsync(bool includeArchived) =>
+            Task.FromResult<IReadOnlyList<NoteRecord>>([Current]);
+
+        public Task<NoteRecord> ArchiveAsync(Guid id, bool archived) =>
+            throw new NotSupportedException();
+
+        public Task<WriteRetryResult> RetryFailedWritesAsync() =>
+            Task.FromResult(new WriteRetryResult(0, 0, 0));
+
+        public Task BackupAsync(string destinationPath) => throw new NotSupportedException();
+
+        public Task<bool> PrepareCloseAsync() => Task.FromResult(true);
+
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+
+        public static NoteRecord Record(string title, string body)
+        {
+            var now = DateTimeOffset.UtcNow;
+            return new(Guid.NewGuid(), NoteKind.Note, title, null, body, false, 1, now, now);
+        }
+
+        public sealed record PendingSave(NoteDraft Draft)
+        {
+            public TaskCompletionSource<NoteRecord> Completion { get; } =
+                new(TaskCreationOptions.RunContinuationsAsynchronously);
         }
     }
 }

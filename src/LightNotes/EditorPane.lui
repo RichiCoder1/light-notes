@@ -29,6 +29,7 @@ style CompactEditorHeaderStyle {
 }
 
 style BackActionStyle {
+    CornerRadius: 5;
     Height: 32;
     Padding: Insets.Symmetric(8, 5);
     Background: LightNotesTheme.Canvas;
@@ -43,22 +44,30 @@ style BackActionStyle {
 }
 
 style TitleFieldStyle {
+    CornerRadius: 6;
+    FontWeight: FontWeight.SemiBold;
     Height: 46;
     MinWidth: 0;
     MainShrink: 1;
     Padding: Insets.Symmetric(10, 9);
     Background: LightNotesTheme.Field;
     TextColor: LightNotesTheme.Ink;
-    FontSize: 19;
+    FontSize: 22;
     Border: LightNotesTheme.FieldOutline;
     when FocusVisible {
         Background: LightNotesTheme.Field;
         FocusRing: LightNotesTheme.KeyboardFocus;
     }
+    when Disabled {
+        Background: LightNotesTheme.Canvas;
+        TextColor: LightNotesTheme.MutedInk;
+    }
 }
 
 style UrlFieldStyle {
+    CornerRadius: 6;
     Height: 38;
+    MainGrow: 1;
     MinWidth: 0;
     MainShrink: 1;
     Padding: Insets.Symmetric(10, 7);
@@ -70,9 +79,14 @@ style UrlFieldStyle {
         Background: LightNotesTheme.Field;
         FocusRing: LightNotesTheme.KeyboardFocus;
     }
+    when Disabled {
+        Background: LightNotesTheme.Canvas;
+        TextColor: LightNotesTheme.MutedInk;
+    }
 }
 
 style BodyFieldStyle {
+    CornerRadius: 6;
     Height: 160;
     MinWidth: 0;
     MainGrow: 1;
@@ -88,9 +102,14 @@ style BodyFieldStyle {
         Background: LightNotesTheme.Field;
         FocusRing: LightNotesTheme.KeyboardFocus;
     }
+    when Disabled {
+        Background: LightNotesTheme.Canvas;
+        TextColor: LightNotesTheme.MutedInk;
+    }
 }
 
 style FieldLabelStyle {
+    FontWeight: FontWeight.Medium;
     FontSize: 12;
     TextColor: LightNotesTheme.MutedInk;
     Height: 18;
@@ -115,6 +134,7 @@ style SaveStatusStyle {
 }
 
 style QuietActionStyle {
+    CornerRadius: 5;
     Height: 32;
     Padding: Insets.Symmetric(10, 6);
     Background: LightNotesTheme.Canvas;
@@ -127,11 +147,13 @@ style QuietActionStyle {
         FocusRing: LightNotesTheme.KeyboardFocus;
     }
     when Disabled {
+        Background: LightNotesTheme.Canvas;
         TextColor: LightNotesTheme.MutedInk;
     }
 }
 
 style ErrorStripStyle {
+    CornerRadius: 6;
     MinHeight: 54;
     Padding: Insets.Symmetric(12, 9);
     Spacing: 8;
@@ -147,6 +169,7 @@ style EmptyEditorStyle {
 }
 
 style EmptyEditorHeadingStyle {
+    FontWeight: FontWeight.SemiBold;
     FontSize: 22;
     TextColor: LightNotesTheme.Ink;
 }
@@ -168,12 +191,15 @@ public component EditorPane(NoteWorkspace model) {
             </Row>
             <TextField session={model.Title} focusTarget={model.TitleFocus} label="Title" style={TitleFieldStyle with { Enabled: model.CanEdit; }} name="notes.title" />
             <Text style={FieldLabelStyle}>Web address (optional)</Text>
-            <TextField session={model.Url} label="Web address" style={UrlFieldStyle with { Enabled: model.CanEdit; }} name="notes.url" />
+            <Row style={Style.Empty.Height(38).Spacing(8).CrossAlignment(LayoutAlignment.Center).Background(LightNotesTheme.Canvas)} name="notes.url-actions">
+                <TextField session={model.Url} label="Web address" style={UrlFieldStyle with { Enabled: model.CanEdit; }} name="notes.url" />
+                <Button onInvoke={() => model.OpenLinkCommand.TryExecute()} style={QuietActionStyle with { Enabled: model.OpenLinkCommand.IsEnabled; }} name="notes.open-link">Open</Button>
+            </Row>
             <Text style={FieldLabelStyle}>Notes</Text>
             <TextArea session={model.Body} label="Notes" style={BodyFieldStyle with { Enabled: model.CanEdit; }} name="notes.body" />
             if (model.HasError) {
                 <Column style={ErrorStripStyle} name="notes.editor-error">
-                    <Text>Couldn’t save this item</Text>
+                    <Text>{model.ErrorHeading}</Text>
                     <Text content={() => model.ErrorMessage ?? "Your draft is still here."} style={Style.Empty.FontSize(12).TextWrap(TextWrap.WordWithGraphemeFallback).MaxLines(2).TextOverflow(TextOverflow.Ellipsis)} name="notes.editor-error-detail" />
                     <Button onInvoke={() => model.RetryCommand.TryExecute()} style={QuietActionStyle with { Enabled: model.RetryCommand.IsEnabled; }} name="notes.editor-retry">Retry</Button>
                 </Column>

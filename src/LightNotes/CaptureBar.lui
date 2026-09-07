@@ -10,6 +10,7 @@ style CaptureBarStyle {
 }
 
 style CaptureFieldStyle {
+    CornerRadius: 6;
     Height: 38;
     MinWidth: 0;
     MainShrink: 1;
@@ -22,9 +23,15 @@ style CaptureFieldStyle {
         Background: LightNotesTheme.Field;
         FocusRing: LightNotesTheme.KeyboardFocus;
     }
+    when Disabled {
+        Background: LightNotesTheme.Canvas;
+        TextColor: LightNotesTheme.MutedInk;
+    }
 }
 
 style PrimaryActionStyle {
+    CornerRadius: 6;
+    FontWeight: FontWeight.SemiBold;
     Width: 78;
     Height: 38;
     Padding: Insets.Symmetric(14, 7);
