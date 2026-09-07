@@ -121,6 +121,39 @@ public sealed class WorkspaceTests
     }
 
     [TestMethod]
+    public void SearchAcceptsLatestQueryWhileArchiveReloadIsPending()
+    {
+        var inbox = ControlledStorage.Record("Inbox", "Current note");
+        var matchingArchive = ControlledStorage.Record("Matching archive", "Find this") with
+        {
+            IsArchived = true,
+        };
+        var otherArchive = ControlledStorage.Record("Other archive", "Hide this") with
+        {
+            IsArchived = true,
+        };
+        var storage = new DelayedReloadStorage([inbox], [inbox, matchingArchive, otherArchive]);
+        using var fixture = new Fixture(storage);
+        var model = fixture.Model;
+
+        Assert.IsFalse(model.CanSearch);
+        fixture.Pump(model.StartAsync());
+        Assert.IsTrue(model.CanSearch);
+
+        model.ShowArchive();
+        fixture.Until(() => model.IsBusy && model.ShowArchived.Value);
+        Assert.IsTrue(model.CanSearch, "An ordinary collection reload disabled search input.");
+        model.Search.Text = "matching";
+        fixture.Drain();
+
+        storage.CompleteReload();
+        fixture.Until(() => !model.IsBusy);
+        Assert.AreEqual("matching", model.Query);
+        Assert.AreEqual(matchingArchive.Id, model.VisibleItems.Single().Id);
+        Assert.IsTrue(model.CanSearch);
+    }
+
+    [TestMethod]
     public void CompactBackPreservesSearchSelectionAndDraft()
     {
         using var fixture = new Fixture();
@@ -398,6 +431,50 @@ public sealed class WorkspaceTests
         );
     }
 
+    [TestMethod]
+    public void CrashReportIsBoundedAndOmitsExceptionMessagesAndNoteContent()
+    {
+        var directory = Path.Combine(
+            Path.GetTempPath(),
+            "light-notes-crash-report-" + Guid.NewGuid().ToString("N")
+        );
+        const string privateNote = "private note body must not enter diagnostics";
+        try
+        {
+            Exception error;
+            try
+            {
+                throw new InvalidOperationException(
+                    privateNote,
+                    new ArgumentException("private nested title")
+                );
+            }
+            catch (Exception captured)
+            {
+                error = captured;
+            }
+
+            var path = Program.TryWriteCrashReport(directory, error);
+            Assert.IsNotNull(path);
+            Assert.AreEqual(Path.Combine(directory, "last-crash.txt"), path);
+            var report = File.ReadAllText(path);
+            Assert.IsTrue(report.Contains(typeof(InvalidOperationException).FullName!));
+            Assert.IsTrue(report.Contains(typeof(ArgumentException).FullName!));
+            Assert.IsTrue(
+                report.Contains(nameof(CrashReportIsBoundedAndOmitsExceptionMessagesAndNoteContent))
+            );
+            Assert.IsFalse(report.Contains(privateNote, StringComparison.Ordinal));
+            Assert.IsFalse(report.Contains("private nested title", StringComparison.Ordinal));
+            Assert.IsTrue(report.Length <= 64 * 1024);
+            Assert.IsNull(Program.TryWriteCrashReport("", error));
+        }
+        finally
+        {
+            if (Directory.Exists(directory))
+                Directory.Delete(directory, recursive: true);
+        }
+    }
+
     private sealed class Fixture : SynchronizationContext, IDisposable
     {
         private readonly SynchronizationContext? _prior = Current;
@@ -530,6 +607,41 @@ public sealed class WorkspaceTests
         }
 
         public void Dispose() => Cancel();
+    }
+
+    private sealed class DelayedReloadStorage(
+        IReadOnlyList<NoteRecord> initial,
+        IReadOnlyList<NoteRecord> reloaded
+    ) : INoteWorkspaceStorage
+    {
+        private readonly TaskCompletionSource<IReadOnlyList<NoteRecord>> _reload = new(
+            TaskCreationOptions.RunContinuationsAsynchronously
+        );
+        private int _listCalls;
+
+        public bool HasUnresolvedWriteFailures => false;
+
+        public void CompleteReload() => _reload.SetResult(reloaded);
+
+        public Task<IReadOnlyList<NoteRecord>> ListAsync(bool includeArchived) =>
+            ++_listCalls == 1 ? Task.FromResult(initial) : _reload.Task;
+
+        public Task<NoteRecord?> GetAsync(Guid id) =>
+            Task.FromResult<NoteRecord?>(reloaded.FirstOrDefault(item => item.Id == id));
+
+        public Task<NoteRecord> SaveAsync(NoteDraft draft) => throw new NotSupportedException();
+
+        public Task<NoteRecord> ArchiveAsync(Guid id, bool archived) =>
+            throw new NotSupportedException();
+
+        public Task<WriteRetryResult> RetryFailedWritesAsync() =>
+            Task.FromResult(new WriteRetryResult(0, 0, 0));
+
+        public Task BackupAsync(string destinationPath) => throw new NotSupportedException();
+
+        public Task<bool> PrepareCloseAsync() => Task.FromResult(true);
+
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }
 
     private sealed class ControlledStorage(NoteRecord initial) : INoteWorkspaceStorage

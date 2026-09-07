@@ -32,7 +32,7 @@ public sealed partial class PublishedPersistenceTests
                 using var automation = new UIA3Automation();
                 var root = automation.FromHandle(handle);
                 WaitForInitialStatus(process, root);
-                root.SetForeground();
+                BringToForeground(process, handle);
                 var output = Path.GetFullPath(
                     Environment.GetEnvironmentVariable("LIGHT_NOTES_DESKTOP_ARTIFACTS")
                         ?? Path.Combine("artifacts", "desktop")

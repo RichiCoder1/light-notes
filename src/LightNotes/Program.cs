@@ -1,3 +1,6 @@
+using System.Globalization;
+using System.Reflection;
+using System.Text;
 using LightNotes.Storage;
 using Lucent.Core;
 using Lucent.Hosting;
@@ -11,14 +14,19 @@ internal static class Program
     [STAThread]
     private static int Main(string[] args)
     {
+        var dataDirectory =
+            Environment.GetEnvironmentVariable("LIGHT_NOTES_DATA_DIRECTORY")
+            ?? Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "LightNotes"
+            );
+        AppDomain.CurrentDomain.UnhandledException += (_, unhandled) =>
+        {
+            if (unhandled.ExceptionObject is Exception error)
+                TryWriteCrashReport(dataDirectory, error);
+        };
         try
         {
-            var dataDirectory =
-                Environment.GetEnvironmentVariable("LIGHT_NOTES_DATA_DIRECTORY")
-                ?? Path.Combine(
-                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                    "LightNotes"
-                );
             if (args.Length != 0)
                 return MaintainAsync(args, Path.Combine(dataDirectory, "notes.db"))
                     .GetAwaiter()
@@ -69,8 +77,66 @@ internal static class Program
         }
         catch (Exception error)
         {
-            Console.Error.WriteLine($"Light Notes could not start: {error.Message}");
+            var reportPath = TryWriteCrashReport(dataDirectory, error);
+            Console.Error.WriteLine(
+                $"Light Notes encountered an error: {error.Message}"
+                    + (reportPath is null ? "" : $" Crash details: {reportPath}")
+            );
             return 1;
+        }
+    }
+
+    internal static string? TryWriteCrashReport(string dataDirectory, Exception error)
+    {
+        try
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(dataDirectory);
+            ArgumentNullException.ThrowIfNull(error);
+            Directory.CreateDirectory(dataDirectory);
+            var builder = new StringBuilder(4096);
+            builder.AppendLine("Light Notes crash");
+            builder
+                .Append("App: ")
+                .AppendLine(
+                    typeof(Program)
+                        .Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()
+                        ?.InformationalVersion
+                        ?? "unknown"
+                );
+            builder.Append("UTC: ").AppendLine(DateTimeOffset.UtcNow.ToString("O"));
+            builder.Append("Runtime: ").AppendLine(Environment.Version.ToString());
+            var current = error;
+            for (var depth = 0; current is not null && depth < 8; depth++)
+            {
+                builder
+                    .Append("Exception ")
+                    .Append(depth)
+                    .Append(": ")
+                    .Append(current.GetType().FullName)
+                    .Append(" (0x")
+                    .Append(current.HResult.ToString("X8", CultureInfo.InvariantCulture))
+                    .AppendLine(")");
+                if (current.StackTrace is { Length: > 0 } stack)
+                    builder.AppendLine(stack);
+                current = current.InnerException;
+            }
+            if (current is not null)
+                builder.AppendLine("Additional inner exceptions omitted.");
+
+            const int maximumCharacters = 64 * 1024;
+            var report = builder.ToString();
+            if (report.Length > maximumCharacters)
+            {
+                var suffix = Environment.NewLine + "Report truncated.";
+                report = report[..(maximumCharacters - suffix.Length)] + suffix;
+            }
+            var path = Path.Combine(dataDirectory, "last-crash.txt");
+            File.WriteAllText(path, report, Encoding.UTF8);
+            return path;
+        }
+        catch
+        {
+            return null;
         }
     }
 

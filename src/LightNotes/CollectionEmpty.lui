@@ -29,8 +29,11 @@ style EmptyCollectionActionStyle {
     Padding: Insets.Symmetric(8, 5);
     Background: LightNotesTheme.Surface;
     TextColor: LightNotesTheme.AccentInk;
-    when Pressed {
+    when Hover {
         Background: LightNotesTheme.Hover;
+    }
+    when Pressed {
+        Background: LightNotesTheme.SurfacePressed;
     }
     when FocusVisible {
         FocusRing: LightNotesTheme.KeyboardFocus;

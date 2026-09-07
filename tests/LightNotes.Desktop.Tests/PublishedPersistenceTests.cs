@@ -11,6 +11,7 @@ using Microsoft.Data.Sqlite;
 namespace LightNotes.Desktop.Tests;
 
 [TestClass]
+[DoNotParallelize]
 public sealed partial class PublishedPersistenceTests
 {
     private static readonly TimeSpan Timeout = TimeSpan.FromSeconds(30);
@@ -31,7 +32,7 @@ public sealed partial class PublishedPersistenceTests
                     WaitForInitialStatus(process, root);
 
                     var capture = FindByName(root, ControlType.Edit, "Capture a link or thought");
-                    root.SetForeground();
+                    BringToForeground(process, window);
                     capture.Focus();
                     Keyboard.Type("Persisted desktop note");
                     Wait.UntilInputIsProcessed();
@@ -81,7 +82,7 @@ public sealed partial class PublishedPersistenceTests
                         Environment.GetEnvironmentVariable("LIGHT_NOTES_DESKTOP_ARTIFACTS")
                         ?? Path.Combine(Directory.GetCurrentDirectory(), "artifacts", "desktop");
                     Directory.CreateDirectory(artifactRoot);
-                    root.SetForeground();
+                    BringToForeground(process, window);
                     Wait.UntilInputIsProcessed();
                     Capture
                         .Element(root)
@@ -172,7 +173,21 @@ public sealed partial class PublishedPersistenceTests
         var tempRoot = Path.GetFullPath(Path.GetTempPath());
         EnsureWithinTempRoot(tempRoot, dataDirectory);
         if (Directory.Exists(dataDirectory))
+        {
+            var crashReport = Path.Combine(dataDirectory, "last-crash.txt");
+            if (File.Exists(crashReport))
+            {
+                var artifacts =
+                    Environment.GetEnvironmentVariable("LIGHT_NOTES_DESKTOP_ARTIFACTS")
+                    ?? Path.Combine(Directory.GetCurrentDirectory(), "artifacts", "desktop");
+                Directory.CreateDirectory(artifacts);
+                File.Copy(
+                    crashReport,
+                    Path.Combine(artifacts, Path.GetFileName(dataDirectory) + "-crash.txt")
+                );
+            }
             Directory.Delete(dataDirectory, recursive: true);
+        }
     }
 
     private static void EnsureWithinTempRoot(string tempRoot, string directory)
@@ -211,6 +226,7 @@ public sealed partial class PublishedPersistenceTests
         var start = new ProcessStartInfo(fullPath)
         {
             UseShellExecute = false,
+            CreateNoWindow = true,
             WorkingDirectory = Path.GetDirectoryName(fullPath)!,
         };
         start.Environment["LIGHT_NOTES_DATA_DIRECTORY"] = dataDirectory;
@@ -404,6 +420,50 @@ public sealed partial class PublishedPersistenceTests
                 throw new TimeoutException(message);
             Thread.Sleep(50);
         }
+    }
+
+    private static void RecordDesktopFailure(Process process, string directory)
+    {
+        try
+        {
+            var output =
+                Environment.GetEnvironmentVariable("LIGHT_NOTES_DESKTOP_ARTIFACTS")
+                ?? Path.Combine(Directory.GetCurrentDirectory(), "artifacts", "desktop");
+            Directory.CreateDirectory(output);
+            var prefix = Path.Combine(output, Path.GetFileName(directory));
+            if (process.HasExited)
+            {
+                File.WriteAllText(prefix + ".txt", $"Process exited: {process.ExitCode}");
+                return;
+            }
+            using var automation = new UIA3Automation();
+            var root = automation.FromHandle(process.MainWindowHandle);
+            var lines = root.FindAllDescendants()
+                .Select(element =>
+                    $"{element.ControlType}: {element.Name}; enabled={element.IsEnabled}; bounds={element.BoundingRectangle}"
+                );
+            File.WriteAllLines(prefix + ".txt", lines);
+            using var capture = Capture.Element(root);
+            capture.ToFile(prefix + ".png");
+        }
+        catch (Exception error)
+        {
+            Console.WriteLine($"Desktop failure diagnostics unavailable: {error.GetType().Name}");
+        }
+    }
+
+    private static void BringToForeground(Process process, nint handle)
+    {
+        // A desktop driver may not own foreground permission after another application was active.
+        // Send and release Alt before requesting foreground, then verify the native window.
+        Keyboard.Press(FlaUI.Core.WindowsAPI.VirtualKeyShort.ALT);
+        Keyboard.Release(FlaUI.Core.WindowsAPI.VirtualKeyShort.ALT);
+        _ = SetForegroundWindow(handle);
+        WaitUntil(
+            process,
+            () => GetForegroundWindow() == handle,
+            "Light Notes did not gain native foreground."
+        );
     }
 
     private static void StopApplication(Process process)

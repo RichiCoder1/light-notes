@@ -35,7 +35,7 @@ The owner and coding agents on the owner's machine are the primary development a
 
 ## Local data and recovery
 
-Data lives in `%LOCALAPPDATA%/LightNotes/notes.db`. Set `LIGHT_NOTES_DATA_DIRECTORY` to use a separate directory for development or automation. Tests always use temporary databases. Never commit a personal database or export.
+Data lives in `%LOCALAPPDATA%/LightNotes/notes.db`. Set `LIGHT_NOTES_DATA_DIRECTORY` to use a separate directory for development or automation. Tests always use temporary databases. Never commit a personal database or export. If the app exits because of an unhandled error, it writes best-effort diagnostics to `last-crash.txt` beside `notes.db`, replacing the previous report; the report records the app version, exception types and stack traces without note contents.
 
 Ctrl+N focuses capture; Ctrl+F focuses search; Ctrl+S saves the selected draft. Use Add to capture the entered text. Edits autosave after a 750 ms pause while typing stays enabled. Save now/Ctrl+S saves immediately; selecting another item or closing flushes the current draft first. Open beside the web address launches the current valid HTTP/HTTPS link in your default browser. A failed save keeps the draft and window available for retry. A successful save means the database transaction committed; it does not imply off-device backup or protection against disk failure.
 
@@ -63,7 +63,7 @@ dotnet restore ./tests/LightNotes.Desktop.Tests/LightNotes.Desktop.Tests.csproj 
 dotnet test --project ./tests/LightNotes.Desktop.Tests/LightNotes.Desktop.Tests.csproj -c Release --no-restore
 ```
 
-The persistence test confirms the edited record reaches the database before closing, then checks it after reopening. It writes its review screenshot to `artifacts/desktop/light-notes-persistence.png`; set `LIGHT_NOTES_DESKTOP_ARTIFACTS` to override that location.
+The desktop suite covers autosave/reopen, responsive focus and targeted accessibility scans, long-note wheel/thumb scrolling with repeated archive/restore, and native cursor/caret phases. It runs sequentially with temporary synthetic data and takes foreground focus. The persistence test verifies the database before closing so close-time saving cannot hide an autosave regression. Captures and failure diagnostics go to `artifacts/desktop`; set `LIGHT_NOTES_DESKTOP_ARTIFACTS` to override that location. Unexpected-exit reports are copied out before temporary test data is removed.
 
 The desktop suite also checks responsive pane replacement, minimum client size, draft continuity, shortcut/Back focus and targeted Axe.Windows rules. It takes foreground focus and should run only while the PC is available. Offline shell captures can be exported during managed tests by setting `LIGHT_NOTES_REVIEW_ARTIFACTS`; these are renderer fixtures, not native desktop screenshots.
 

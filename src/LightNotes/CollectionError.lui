@@ -33,6 +33,12 @@ style CollectionErrorActionStyle {
     Padding: Insets.Symmetric(8, 5);
     Background: LightNotesTheme.ErrorSurface;
     TextColor: LightNotesTheme.ErrorInk;
+    when Hover {
+        Background: LightNotesTheme.ErrorHover;
+    }
+    when Pressed {
+        Background: LightNotesTheme.ErrorPressed;
+    }
     when FocusVisible {
         FocusRing: LightNotesTheme.KeyboardFocus;
     }

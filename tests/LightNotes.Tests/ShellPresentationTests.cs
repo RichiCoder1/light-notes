@@ -7,7 +7,7 @@ using SkiaSharp;
 namespace LightNotes.Tests;
 
 [TestClass]
-public sealed class ShellPresentationTests
+public sealed partial class ShellPresentationTests
 {
     [TestMethod]
     public void ResponsiveShellRendersRealContentAndRetainsWorkspaceState()
@@ -95,7 +95,7 @@ public sealed class ShellPresentationTests
         var medium = Scenario(fixture, composition, renderer, model, "medium", 900, 760, 1);
         Assert.AreEqual(NoteWorkspaceLayout.Medium, model.Layout);
         AssertBounds(medium, search, expectedWidth: 268, message: "medium collection width");
-        AssertBounds(medium, navigation, maximumX: 64, message: "medium navigation rail");
+        AssertBounds(medium, navigation, maximumX: 80, message: "medium navigation rail");
         AssertPresent(medium, title, true, "medium editor");
         AssertNearBottom(medium, notesList, 760, "medium list viewport");
         AssertNearBottom(medium, save, 760, "medium editor actions");
@@ -327,6 +327,52 @@ public sealed class ShellPresentationTests
         AssertInsideViewport(longBodyScene, 900, 760, title, url, body);
         AssertWraps(longBodyScene, body, "20,000-character body");
 
+        var inboxCountBeforeArchive = model.InboxCount;
+        Assert.IsTrue(
+            model.ArchiveCommand.TryExecute(),
+            "The selected Long note did not accept the Archive command."
+        );
+        fixture.Until(() =>
+            !model.IsBusy
+            && model.Selected.Value?.Id != longBodyRecord.Id
+            && model.InboxCount == inboxCountBeforeArchive - 1
+        );
+        var afterArchiveScene = Scenario(
+            fixture,
+            composition,
+            renderer,
+            model,
+            "medium-after-long-note-archive",
+            900,
+            760,
+            1,
+            export: false
+        );
+        AssertPresent(afterArchiveScene, body, true, "editor after Long note archive");
+
+        model.ShowArchive();
+        fixture.Until(() => model.ShowArchived.Value && !model.IsBusy);
+        var archivedLongNote = model.VisibleItems.Single(item => item.Id == longBodyRecord.Id);
+        Assert.IsTrue(
+            archivedLongNote.IsArchived,
+            "Reloading Archive lost the archived Long note."
+        );
+        var archiveScene = Scenario(
+            fixture,
+            composition,
+            renderer,
+            model,
+            "medium-archive-after-long-note",
+            900,
+            760,
+            1,
+            export: false
+        );
+        AssertPresent(archiveScene, body, true, "Long note in Archive");
+
+        model.ShowInbox();
+        fixture.Until(() => !model.ShowArchived.Value && !model.IsBusy);
+
         var longUrlRecord = model.VisibleItems.Single(item =>
             item.Title.StartsWith("An unusually long article", StringComparison.Ordinal)
         );
@@ -443,6 +489,218 @@ public sealed class ShellPresentationTests
             "No-results state did not replace the virtualized list."
         );
         AssertSemantic(composition, title, false, "no-results hidden editor");
+    }
+
+    [TestMethod]
+    public void InteractionStatesKeepWarmFeedbackAndCompactArchiveLegible()
+    {
+        using var fixture = new Fixture();
+        var model = fixture.Model;
+        fixture.Pump(model.StartAsync());
+
+        using var composition = new Composition(fixture.Graph, "light-notes-interaction-review");
+        using var theme = new ThemeContext(composition.Root.Scope, LightNotesTheme.Create());
+        composition.Mount(composition.Root, theme, global::LightNotes.Components.AppView(model));
+        using var renderer = new SkiaSceneRenderer();
+
+        model.Capture.Text = "Interaction state sample";
+        var defaultScene = Scenario(
+            fixture,
+            composition,
+            renderer,
+            model,
+            "interaction-default",
+            1180,
+            760,
+            1
+        );
+        var add = Semantic(composition, "Add", SemanticRole.Button);
+        Assert.AreEqual(
+            Color.Parse("#315F7B"),
+            BackgroundColor(defaultScene, add),
+            "The enabled Add action lost its accent surface."
+        );
+        AssertTextCentered(defaultScene, add, "enabled Add action");
+
+        model.Title.Text = "Interaction editing title";
+        model.Body.Text = "Editing state keeps the retained title and multiline body visible.";
+        var editingScene = Scenario(
+            fixture,
+            composition,
+            renderer,
+            model,
+            "interaction-editing",
+            1180,
+            760,
+            1
+        );
+        var editingTitle = Semantic(composition, "Title", SemanticRole.TextField);
+        var editingBody = SemanticText(composition, "Notes");
+        AssertPresent(editingScene, editingTitle, true, "editing title field");
+        AssertPresent(editingScene, editingBody, true, "editing body field");
+
+        var addBounds = Bounds(defaultScene, add);
+        var pointer = 71;
+        var hover = composition.Input.DispatchPointer(
+            new(
+                PointerCommandKind.Move,
+                pointer,
+                addBounds.X + addBounds.Width / 2,
+                addBounds.Y + addBounds.Height / 2
+            )
+        );
+        Assert.AreEqual(
+            InputDispatchStatus.Delivered,
+            hover.Status,
+            "The Add action did not receive a pointer hover."
+        );
+        var hoveredScene = Scenario(
+            fixture,
+            composition,
+            renderer,
+            model,
+            "interaction-hover",
+            1180,
+            760,
+            1
+        );
+        Assert.AreEqual(
+            Color.Parse("#3B7390"),
+            BackgroundColor(hoveredScene, add),
+            "The Add action did not expose a distinct hover surface."
+        );
+
+        var down = composition.Input.DispatchPointer(
+            new(
+                PointerCommandKind.Down,
+                pointer,
+                addBounds.X + addBounds.Width / 2,
+                addBounds.Y + addBounds.Height / 2,
+                PointerButton.Primary
+            )
+        );
+        Assert.IsTrue(down.Handled, "The Add action did not accept a primary press.");
+        var pressedScene = Scenario(
+            fixture,
+            composition,
+            renderer,
+            model,
+            "interaction-pressed",
+            1180,
+            760,
+            1
+        );
+        Assert.AreEqual(
+            Color.Parse("#254B61"),
+            BackgroundColor(pressedScene, add),
+            "The Add action did not expose a distinct pressed surface."
+        );
+        composition.Input.DispatchPointer(
+            new(PointerCommandKind.Cancel, pointer, addBounds.X, addBounds.Y)
+        );
+
+        var selectedItem = model.Selected.Value!;
+        var selectedRow = Semantic(
+            composition,
+            NotePresentation.RowLabel(selectedItem),
+            SemanticRole.ListItem
+        );
+        var selectedBounds = Bounds(defaultScene, selectedRow);
+        var selectedDown = composition.Input.DispatchPointer(
+            new(
+                PointerCommandKind.Down,
+                72,
+                selectedBounds.X + selectedBounds.Width / 2,
+                selectedBounds.Y + selectedBounds.Height / 2,
+                PointerButton.Primary
+            )
+        );
+        Assert.IsTrue(
+            selectedDown.Handled,
+            "The selected note row did not accept a primary press."
+        );
+        var selectedPressedScene = Scenario(
+            fixture,
+            composition,
+            renderer,
+            model,
+            "interaction-selected-pressed",
+            1180,
+            760,
+            1
+        );
+        Assert.AreEqual(
+            Color.Parse("#E3E8E8"),
+            BackgroundColor(selectedPressedScene, selectedRow),
+            "The selected note row lost its warm pressed surface."
+        );
+        composition.Input.DispatchPointer(
+            new(PointerCommandKind.Cancel, 72, selectedBounds.X, selectedBounds.Y)
+        );
+
+        model.Capture.Text = string.Empty;
+        var disabledScene = Scenario(
+            fixture,
+            composition,
+            renderer,
+            model,
+            "interaction-disabled",
+            1180,
+            760,
+            1
+        );
+        Assert.AreEqual(
+            Color.Parse("#D9D6CF"),
+            BackgroundColor(disabledScene, add),
+            "The disabled Add action lost its quiet disabled surface."
+        );
+
+        model.ShowArchive();
+        fixture.Until(() => !model.IsBusy);
+        var archiveScene = Scenario(
+            fixture,
+            composition,
+            renderer,
+            model,
+            "interaction-archive-medium",
+            900,
+            760,
+            1
+        );
+        var archive = Semantic(composition, "Archive", SemanticRole.ListItem);
+        AssertSingleLine(archiveScene, archive, "medium Archive navigation item");
+
+        using var loadingFixture = new Fixture();
+        using var loadingComposition = new Composition(
+            loadingFixture.Graph,
+            "light-notes-search-disabled-review"
+        );
+        using var loadingTheme = new ThemeContext(
+            loadingComposition.Root.Scope,
+            LightNotesTheme.Create()
+        );
+        loadingComposition.Mount(
+            loadingComposition.Root,
+            loadingTheme,
+            global::LightNotes.Components.AppView(loadingFixture.Model)
+        );
+        using var loadingRenderer = new SkiaSceneRenderer();
+        var loadingScene = Scenario(
+            loadingFixture,
+            loadingComposition,
+            loadingRenderer,
+            loadingFixture.Model,
+            "interaction-search-disabled",
+            1180,
+            760,
+            1
+        );
+        var search = Semantic(loadingComposition, "Search saved items", SemanticRole.TextField);
+        Assert.AreEqual(
+            Color.Parse("#FBFAF6"),
+            BackgroundColor(loadingScene, search),
+            "A disabled search field flashed to the gray canvas surface."
+        );
     }
 
     [TestMethod]
@@ -590,6 +848,94 @@ public sealed class ShellPresentationTests
     private static SemanticSnapshot SemanticText(Composition composition, string name) =>
         Descendants(composition.SemanticSnapshot())
             .Single(node => node.Name == name && node.Text is not null);
+
+    private static LayoutRect Bounds(RetainedScene scene, SemanticSnapshot element) =>
+        scene
+            .Boxes.Single(box =>
+                box.Identity.CompositionEpoch == element.Identity.CompositionEpoch
+                && box.Identity.ElementId == element.Identity.ElementId
+            )
+            .Bounds;
+
+    private static Color BackgroundColor(RetainedScene scene, SemanticSnapshot element)
+    {
+        var identity = new ElementIdentity(
+            element.Identity.CompositionEpoch,
+            element.Identity.ElementId
+        );
+        var paint = SceneNodes(scene.Nodes)
+            .OfType<PaintSceneNode>()
+            .Single(node =>
+                node.Identity.Element == identity && node.Identity.Kind == SceneNodeKind.Paint
+            );
+        Assert.IsNotNull(paint.Brush.Color, $"{element.Name} did not resolve a solid background.");
+        return paint.Brush.Color.Value;
+    }
+
+    private static void AssertTextCentered(
+        RetainedScene scene,
+        SemanticSnapshot element,
+        string message
+    )
+    {
+        var identity = new ElementIdentity(
+            element.Identity.CompositionEpoch,
+            element.Identity.ElementId
+        );
+        var text = SceneNodes(scene.Nodes)
+            .OfType<TextSceneNode>()
+            .Single(node =>
+                node.Identity.Element == identity && node.Identity.Kind == SceneNodeKind.Text
+            );
+        var left = text.Text.Runs.Min(run => run.OriginX + run.Glyphs.Min(glyph => glyph.X));
+        var right = text.Text.Runs.Max(run =>
+            run.OriginX + run.Glyphs.Max(glyph => glyph.X + glyph.XAdvance)
+        );
+        var paintedCenter = text.Bounds.X + (left + right) / 2;
+        var box = Bounds(scene, element);
+        Assert.AreEqual(
+            box.X + box.Width / 2,
+            paintedCenter,
+            1.25f,
+            $"{message} text was not optically centered."
+        );
+    }
+
+    private static void AssertSingleLine(
+        RetainedScene scene,
+        SemanticSnapshot element,
+        string message
+    )
+    {
+        var identity = new ElementIdentity(
+            element.Identity.CompositionEpoch,
+            element.Identity.ElementId
+        );
+        var text = SceneNodes(scene.Nodes)
+            .OfType<TextSceneNode>()
+            .Single(node =>
+                node.Identity.Element == identity && node.Identity.Kind == SceneNodeKind.Text
+            );
+        Assert.IsTrue(text.Text.Height <= 20, $"{message} wrapped or became too tall.");
+    }
+
+    private static IEnumerable<SceneNode> SceneNodes(IEnumerable<SceneNode> nodes)
+    {
+        foreach (var node in nodes)
+        {
+            yield return node;
+            if (node is ClipSceneNode clip)
+            {
+                foreach (var child in SceneNodes(clip.Children))
+                    yield return child;
+            }
+            else if (node is OpacitySceneNode opacity)
+            {
+                foreach (var child in SceneNodes(opacity.Children))
+                    yield return child;
+            }
+        }
+    }
 
     private static void AssertPresent(
         RetainedScene scene,

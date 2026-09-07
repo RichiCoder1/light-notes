@@ -25,9 +25,21 @@ internal static class LightNotesTheme
         "light-notes-navigation-selected",
         Color.Parse("#344866")
     );
+    internal static readonly Token<Brush> NavigationHover = new(
+        "light-notes-navigation-hover",
+        Color.Parse("#2E405B")
+    );
+    internal static readonly Token<Brush> NavigationPressed = new(
+        "light-notes-navigation-pressed",
+        Color.Parse("#405875")
+    );
     internal static readonly Token<Brush> Accent = new(
         "light-notes-accent",
         Color.Parse("#315F7B")
+    );
+    internal static readonly Token<Brush> AccentHover = new(
+        "light-notes-accent-hover",
+        Color.Parse("#3B7390")
     );
     internal static readonly Token<Brush> AccentPressed = new(
         "light-notes-accent-pressed",
@@ -42,6 +54,26 @@ internal static class LightNotesTheme
         Color.Parse("#DFEAF0")
     );
     internal static readonly Token<Brush> Hover = new("light-notes-hover", Color.Parse("#EDF1F2"));
+    internal static readonly Token<Brush> ScrollbarTrack = new(
+        "light-notes-scrollbar-track",
+        Color.Parse("#EDE9E1")
+    );
+    internal static readonly Token<Brush> ScrollbarThumb = new(
+        "light-notes-scrollbar-thumb",
+        Color.Parse("#84796D")
+    );
+    internal static readonly Token<Brush> ScrollbarThumbHover = new(
+        "light-notes-scrollbar-thumb-hover",
+        Color.Parse("#6F6357")
+    );
+    internal static readonly Token<Brush> ScrollbarThumbPressed = new(
+        "light-notes-scrollbar-thumb-pressed",
+        Color.Parse("#594E44")
+    );
+    internal static readonly Token<Brush> SurfacePressed = new(
+        "light-notes-surface-pressed",
+        Color.Parse("#E3E8E8")
+    );
     internal static readonly Token<Color> Ink = new("light-notes-ink", Color.Parse("#202A34"));
     internal static readonly Token<Color> MutedInk = new(
         "light-notes-muted-ink",
@@ -63,6 +95,14 @@ internal static class LightNotesTheme
     internal static readonly Token<Brush> ErrorSurface = new(
         "light-notes-error-surface",
         Color.Parse("#FCEBEC")
+    );
+    internal static readonly Token<Brush> ErrorHover = new(
+        "light-notes-error-hover",
+        Color.Parse("#F6DDE0")
+    );
+    internal static readonly Token<Brush> ErrorPressed = new(
+        "light-notes-error-pressed",
+        Color.Parse("#F2CCD1")
     );
     internal static readonly Token<Color> ErrorInk = new(
         "light-notes-error-ink",

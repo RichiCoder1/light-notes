@@ -183,6 +183,7 @@ public sealed class NoteWorkspace : IAsyncDisposable
     public bool IsBusy => _busy.Value;
     public bool IsSaving => _saving.Value;
     public bool CanEdit => IsReady && !IsBusy && !_closing;
+    public bool CanSearch => IsReady && !_closing;
     public bool CanOpenLink => TryGetSelectedWebUri(out _);
     public bool IsDirty
     {

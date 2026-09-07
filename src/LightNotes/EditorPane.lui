@@ -34,8 +34,11 @@ style BackActionStyle {
     Padding: Insets.Symmetric(8, 5);
     Background: LightNotesTheme.Canvas;
     TextColor: LightNotesTheme.AccentInk;
-    when Pressed {
+    when Hover {
         Background: LightNotesTheme.Hover;
+    }
+    when Pressed {
+        Background: LightNotesTheme.SurfacePressed;
     }
     when FocusVisible {
         Background: LightNotesTheme.Canvas;
@@ -97,6 +100,14 @@ style BodyFieldStyle {
     FontSize: 15;
     TextWrap: TextWrap.WordWithGraphemeFallback;
     Clip: true;
+    Visibility: ScrollBarVisibility.Auto;
+    Thickness: 10;
+    MinimumThumbLength: 28;
+    TrackBrush: LightNotesTheme.ScrollbarTrack;
+    ThumbBrush: LightNotesTheme.ScrollbarThumb;
+    HoverThumbBrush: LightNotesTheme.ScrollbarThumbHover;
+    PressedThumbBrush: LightNotesTheme.ScrollbarThumbPressed;
+    ThumbCornerRadius: 5;
     Border: LightNotesTheme.FieldOutline;
     when FocusVisible {
         Background: LightNotesTheme.Field;
@@ -139,8 +150,11 @@ style QuietActionStyle {
     Padding: Insets.Symmetric(10, 6);
     Background: LightNotesTheme.Canvas;
     TextColor: LightNotesTheme.AccentInk;
-    when Pressed {
+    when Hover {
         Background: LightNotesTheme.Hover;
+    }
+    when Pressed {
+        Background: LightNotesTheme.SurfacePressed;
     }
     when FocusVisible {
         Background: LightNotesTheme.Canvas;

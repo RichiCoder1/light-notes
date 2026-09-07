@@ -41,8 +41,11 @@ style CompactDestinationStyle {
     Background: LightNotesTheme.Surface;
     TextColor: LightNotesTheme.AccentInk;
     FontSize: 12;
-    when Pressed {
+    when Hover {
         Background: LightNotesTheme.Hover;
+    }
+    when Pressed {
+        Background: LightNotesTheme.SurfacePressed;
     }
     when FocusVisible {
         Background: LightNotesTheme.Surface;
@@ -64,7 +67,7 @@ style SearchFieldStyle {
         FocusRing: LightNotesTheme.KeyboardFocus;
     }
     when Disabled {
-        Background: LightNotesTheme.Canvas;
+        Background: LightNotesTheme.Field;
         TextColor: LightNotesTheme.MutedInk;
     }
 }
@@ -75,8 +78,11 @@ style ClearSearchStyle {
     Padding: Insets.Symmetric(8, 5);
     Background: LightNotesTheme.Surface;
     TextColor: LightNotesTheme.AccentInk;
-    when Pressed {
+    when Hover {
         Background: LightNotesTheme.Hover;
+    }
+    when Pressed {
+        Background: LightNotesTheme.SurfacePressed;
     }
     when FocusVisible {
         Background: LightNotesTheme.Surface;
@@ -91,6 +97,14 @@ style CollectionListStyle {
     MainShrink: 1;
     MinHeight: 0;
     Clip: true;
+    Visibility: ScrollBarVisibility.Auto;
+    Thickness: 10;
+    MinimumThumbLength: 28;
+    TrackBrush: LightNotesTheme.ScrollbarTrack;
+    ThumbBrush: LightNotesTheme.ScrollbarThumb;
+    HoverThumbBrush: LightNotesTheme.ScrollbarThumbHover;
+    PressedThumbBrush: LightNotesTheme.ScrollbarThumbPressed;
+    ThumbCornerRadius: 5;
     Background: LightNotesTheme.Surface;
 }
 
@@ -112,7 +126,7 @@ public component CollectionPane(NoteWorkspace model) {
             <Button onInvoke={() => model.ShowInbox()} style={CompactDestinationStyle with { Participation: compact && model.ShowArchived.Value ? ElementParticipation.Visible : ElementParticipation.Collapsed; }} name="notes.compact-inbox">Inbox</Button>
             <Button onInvoke={() => model.ShowArchive()} style={CompactDestinationStyle with { Participation: compact && !model.ShowArchived.Value ? ElementParticipation.Visible : ElementParticipation.Collapsed; }} name="notes.compact-archive">Archive</Button>
         </Row>
-        <TextField session={model.Search} focusTarget={model.SearchFocus} label="Search saved items" style={SearchFieldStyle with { Enabled: model.IsReady && !model.IsBusy; }} name="notes.search" />
+        <TextField session={model.Search} focusTarget={model.SearchFocus} label="Search saved items" style={SearchFieldStyle with { Enabled: model.CanSearch; }} name="notes.search" />
         if (hasQuery) {
             <Row style={Style.Empty.Height(30).MainAlignment(LayoutAlignment.End)} name="notes.search-actions">
                 <Button onInvoke={ClearSearch} style={ClearSearchStyle} name="notes.clear-search">Clear search</Button>

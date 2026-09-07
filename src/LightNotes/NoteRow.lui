@@ -17,9 +17,27 @@ style NoteRowStyle {
     when Hover {
         Background: LightNotesTheme.Hover;
     }
+    when Pressed {
+        Background: LightNotesTheme.SurfacePressed;
+        TextColor: LightNotesTheme.Ink;
+    }
     when Selected {
         Border: LightNotesTheme.RowSelectionOutline;
         Background: LightNotesTheme.Selection;
+    }
+    when Selected | Hover {
+        Border: LightNotesTheme.RowSelectionOutline;
+        Background: LightNotesTheme.Hover;
+    }
+    when Selected | Pressed {
+        Border: LightNotesTheme.RowSelectionOutline;
+        Background: LightNotesTheme.SurfacePressed;
+        TextColor: LightNotesTheme.Ink;
+    }
+    when Selected | FocusVisible {
+        Background: LightNotesTheme.Selection;
+        TextColor: LightNotesTheme.Ink;
+        FocusRing: LightNotesTheme.KeyboardFocus;
     }
     when FocusVisible {
         Background: LightNotesTheme.Selection;

@@ -35,8 +35,13 @@ style PrimaryActionStyle {
     Width: 78;
     Height: 38;
     Padding: Insets.Symmetric(14, 7);
+    MainAlignment: LayoutAlignment.Center;
+    CrossAlignment: LayoutAlignment.Center;
     Background: LightNotesTheme.Accent;
     TextColor: LightNotesTheme.InverseInk;
+    when Hover {
+        Background: LightNotesTheme.AccentHover;
+    }
     when Pressed {
         Background: LightNotesTheme.AccentPressed;
     }

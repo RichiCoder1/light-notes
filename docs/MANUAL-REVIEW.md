@@ -24,6 +24,7 @@ Try these together rather than treating them as release gates:
 - Search similar titles, clear the query, and try a phrase with no results. Switch between Inbox and Archive at compact width too.
 - Open the longest title, address and note. Read and edit near the end, then narrow to the minimum size. Look for clipped actions, cramped text and confusing scroll ownership.
 - Judge spacing, contrast, reading comfort, navigation weight, row density, empty states and save feedback. Note the width and selected item when reporting a layout problem.
+- Compare pointer hover, held press, selected press and disabled states. Move between editor text and buttons, watch the idle caret, and try wheel scrolling, dragging a thumb and clicking its track. Switch Inbox/Archive while a search is present and repeat the long-note archive/restore round trip.
 
 A helpful feedback note contains: what you were trying to do, what felt wrong, what you expected, and whether it concerns the app or a reusable framework capability. Screenshots are useful for visual feedback but optional.
 
@@ -64,3 +65,14 @@ Use the review to prioritize the next chunk. Do not grow #80 into a component re
 The published application at 6a44350, consuming Lucent 0.3.0-dev.21.1, passed both maintained desktop tests: physical capture, autosave verified directly in SQLite before closing, reopen, responsive draft retention, compact Back, Ctrl+N focus and native minimum dimensions. Axe.Windows reported zero errors in wide, compact editor and minimum collection scans. Settled screenshots were inspected across the responsive sizes. The tests now account for Save now being disabled after autosave and allow a presented frame to settle before screenshots.
 
 An extra screenshot-confirmation run passed the responsive test; its capture window exited during keyboard input. The earlier successful unchanged capture/persistence test remains the evidence. Logs and images are under ignored `artifacts/desktop/daily-use-closeout`. This automated closeout does not claim a fresh native wheel, broad DPI/theme, screen-reader or manual Accessibility Insights walkthrough. The product and authoring review above is the next step.
+
+
+## Interaction feedback follow-up
+
+The owner review opened [Lucent #91–#94](https://github.com/RichiCoder1/lucent/issues/91): long-note responsiveness and the reported Archive exit, readable hover/press states and alignment, native caret/cursor behavior, and default themeable scrollbars. Lucent owns routing, layout, shaping, scrollbar geometry and Windows caret/cursor transport; Light Notes supplies warm application styles and collection/search policy.
+
+The scrollbar is initially vertical, with a stable gutter and app-provided default/hover/pressed brushes. The same viewport drives wheel, track, thumb and accessibility scrolling. Its `.lui` style keys are in `CollectionPane` and `EditorPane`; platform-specific appearances can replace these values without replacing scroll behavior. Horizontal visual scrollbars and full app dark/high-contrast themes remain future work.
+
+The managed app suite covers the archive/restore sequence, search during collection reloads and rendered interaction states. The local NativeAOT candidate passed all four maintained desktop tests: autosave/reopen, responsive focus with zero-error targeted Axe.Windows scans, native cursor/caret phases, and long-note wheel/thumb scrolling through three Archive/Restore cycles. Captures were inspected at wide and medium sizes, including the corrected selected/focused row colors. Final source and official package identities are recorded in the linked issues; the local candidate result alone is not official package-consumption evidence. The previously reported Archive exit has no confirmed root cause yet. If it recurs, preserve `last-crash.txt` from the active data directory, when present, and report the preceding action; a successful automated round trip alone does not establish the cause of an intermittent exit.
+
+A component's combined state rule can outrank an authored single-state rule. NoteRow and Navigation explicitly style Selected | FocusVisible to avoid inheriting the framework focus palette. The framework priority contract is unchanged; make this behavior and its diagnostics part of the next .lui authoring review ([Lucent #95](https://github.com/RichiCoder1/lucent/issues/95)). The bounded Skia text probe found no RGB/BGR-specific coverage in the tested CPU path, so grayscale antialiasing remains the default; physical-panel/DPI text tuning remains a separate review.
