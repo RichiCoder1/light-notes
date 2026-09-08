@@ -65,7 +65,7 @@ public sealed class NoteWorkspace : IAsyncDisposable
         CaptureFocus = new(owner, "capture-focus");
         SearchFocus = new(owner, "search-focus");
         TitleFocus = new(owner, "title-focus");
-        Constraints = new(owner);
+        Breakpoints = new(owner, LightNotesBreakpoints.Set, "notes.breakpoints");
         CollectionViewport = new(owner, name: "notes-list-viewport");
         Items = owner.Signal<IReadOnlyList<NoteRecord>>([], "notes");
         _allItems = owner.Signal<IReadOnlyList<NoteRecord>>([], "all-notes");
@@ -143,8 +143,7 @@ public sealed class NoteWorkspace : IAsyncDisposable
             owner,
             _ =>
             {
-                if (IsCompact)
-                    _route.Value = NoteWorkspaceRoute.Collection;
+                _route.Value = NoteWorkspaceRoute.Collection;
                 RequestFocus(SearchFocus, selectAll: true);
                 return Task.CompletedTask;
             },
@@ -168,7 +167,7 @@ public sealed class NoteWorkspace : IAsyncDisposable
     public FocusTarget TitleFocus { get; }
     public ApplicationCommand FocusCaptureCommand { get; }
     public ApplicationCommand FocusSearchCommand { get; }
-    public ResponsiveConstraints Constraints { get; }
+    public WindowBreakpoints Breakpoints { get; }
     public ViewportState CollectionViewport { get; }
     public Signal<IReadOnlyList<NoteRecord>> Items { get; }
 
@@ -254,22 +253,9 @@ public sealed class NoteWorkspace : IAsyncDisposable
     /// <summary>Gets the current plain-text query mirrored by the Search editor session.</summary>
     public string Query => Search.Text;
 
-    /// <summary>Gets the active shell width bucket from the mounted responsive container.</summary>
-    public NoteWorkspaceLayout Layout
-    {
-        get
-        {
-            var width = Constraints.Current.Width;
-            return width >= 1060f ? NoteWorkspaceLayout.Wide
-                : width >= 840f ? NoteWorkspaceLayout.Medium
-                : NoteWorkspaceLayout.Compact;
-        }
-    }
-
-    public bool IsWide => Layout == NoteWorkspaceLayout.Wide;
-    public bool IsCompact => Layout == NoteWorkspaceLayout.Compact;
-    public bool ShowCollection => !IsCompact || _route.Value == NoteWorkspaceRoute.Collection;
-    public bool ShowEditor => !IsCompact || _route.Value == NoteWorkspaceRoute.Editor;
+    /// <summary>Gets the route that responsive styles use to choose the visible workspace pane.</summary>
+    public bool ShowCollection => _route.Value == NoteWorkspaceRoute.Collection;
+    public bool ShowEditor => _route.Value == NoteWorkspaceRoute.Editor;
     public bool IsFiltering => !string.IsNullOrWhiteSpace(Search.Text);
     public bool HasItems => VisibleItems.Count != 0;
     public bool HasSearchResults => HasItems;
@@ -283,11 +269,9 @@ public sealed class NoteWorkspace : IAsyncDisposable
 
     public Task StartAsync() => Run(LoadAsync, "Opening your notes...", "Could not open notes");
 
-    /// <summary>Returns the compact shell to its collection route while retaining the editor draft.</summary>
+    /// <summary>Returns the workspace to its collection route while retaining the editor draft.</summary>
     public void BackToCollection()
     {
-        if (!IsCompact)
-            return;
         _route.Value = NoteWorkspaceRoute.Collection;
         RequestFocus(SearchFocus);
     }
@@ -312,11 +296,8 @@ public sealed class NoteWorkspace : IAsyncDisposable
             return;
         if (Selected.Value?.Id == id)
         {
-            if (IsCompact)
-            {
-                _route.Value = NoteWorkspaceRoute.Editor;
-                RequestFocus(TitleFocus);
-            }
+            _route.Value = NoteWorkspaceRoute.Editor;
+            RequestFocus(TitleFocus);
             return;
         }
         _ = Run(
@@ -325,7 +306,7 @@ public sealed class NoteWorkspace : IAsyncDisposable
                 await SaveCurrentAsync();
                 var selected = Items.Value.FirstOrDefault(item => item.Id == id);
                 SelectRecord(selected);
-                if (selected is not null && IsCompact)
+                if (selected is not null)
                 {
                     _route.Value = NoteWorkspaceRoute.Editor;
                     RequestFocus(TitleFocus);
@@ -541,11 +522,8 @@ public sealed class NoteWorkspace : IAsyncDisposable
         ShowArchived.Value = false;
         await RefreshAsync();
         SelectRecord(saved);
-        if (IsCompact)
-        {
-            _route.Value = NoteWorkspaceRoute.Editor;
-            RequestFocus(TitleFocus);
-        }
+        _route.Value = NoteWorkspaceRoute.Editor;
+        RequestFocus(TitleFocus);
     }
 
     private void ObserveDraft()

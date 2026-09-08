@@ -1,5 +1,6 @@
 namespace LightNotes;
-style EditorPaneStyle {
+style EditorPaneStyle(WindowBreakpoints breakpoints, NoteWorkspace model) {
+    Axis: LayoutAxis.Column;
     CrossAlignment: LayoutAlignment.Stretch;
     Background: LightNotesTheme.Canvas;
     MainGrow: 1;
@@ -7,9 +8,19 @@ style EditorPaneStyle {
     MinWidth: 0;
     Clip: true;
     Padding: Insets.Symmetric(24, 22);
+    Participation: ElementParticipation.Visible;
+
+    when (!breakpoints.IsActive(LightNotesBreakpoints.Wide)) {
+        Padding: Insets.Symmetric(16, 18);
+    }
+
+    when (!breakpoints.IsActive(LightNotesBreakpoints.Medium) && !model.ShowEditor) {
+        Participation: ElementParticipation.Collapsed;
+    }
 }
 
-style EditorContentStyle {
+style EditorContentStyle(NoteWorkspace model) {
+    Axis: LayoutAxis.Column;
     CrossAlignment: LayoutAlignment.Stretch;
     MainGrow: 1;
     MainShrink: 1;
@@ -18,14 +29,24 @@ style EditorContentStyle {
     MinHeight: 0;
     Spacing: 10;
     Clip: true;
+    Participation: ElementParticipation.Collapsed;
+
+    when (model.Selected.Value is not null) {
+        Participation: ElementParticipation.Visible;
+    }
 }
 
-style CompactEditorHeaderStyle {
+style CompactEditorHeaderStyle(WindowBreakpoints breakpoints) {
     Height: 34;
     Background: LightNotesTheme.Canvas;
     Axis: LayoutAxis.Row;
     CrossAlignment: LayoutAlignment.Center;
     Spacing: 12;
+    Participation: ElementParticipation.Collapsed;
+
+    when (!breakpoints.IsActive(LightNotesBreakpoints.Medium)) {
+        Participation: ElementParticipation.Visible;
+    }
 }
 
 style BackActionStyle {
@@ -126,12 +147,34 @@ style FieldLabelStyle {
     Height: 18;
 }
 
+style UrlActionsStyle {
+    Height: 38;
+    Background: LightNotesTheme.Canvas;
+    Axis: LayoutAxis.Row;
+    CrossAlignment: LayoutAlignment.Center;
+    Spacing: 8;
+}
+
 style EditorFooterStyle {
     Height: 38;
     Background: LightNotesTheme.Canvas;
     Axis: LayoutAxis.Row;
     CrossAlignment: LayoutAlignment.Center;
     Spacing: 8;
+}
+
+style EditorFooterStatusStyle(WindowBreakpoints breakpoints) {
+    MainGrow: 1;
+    MainShrink: 1;
+    MinWidth: 0;
+    FontSize: 12;
+    TextColor: LightNotesTheme.MutedInk;
+    MaxLines: 1;
+    Overflow: TextOverflow.Ellipsis;
+
+    when (!breakpoints.IsActive(LightNotesBreakpoints.Medium)) {
+        Participation: ElementParticipation.Collapsed;
+    }
 }
 
 style SaveStatusStyle {
@@ -167,6 +210,7 @@ style QuietActionStyle {
 }
 
 style ErrorStripStyle {
+    Axis: LayoutAxis.Column;
     CornerRadius: 6;
     MinHeight: 54;
     Padding: Insets.Symmetric(12, 9);
@@ -176,10 +220,16 @@ style ErrorStripStyle {
     Border: LightNotesTheme.ErrorOutline;
 }
 
-style EmptyEditorStyle {
+style EmptyEditorStyle(NoteWorkspace model) {
+    Axis: LayoutAxis.Column;
     MainGrow: 1;
     Padding: Insets.Symmetric(12, 42);
     Spacing: 10;
+    Participation: ElementParticipation.Collapsed;
+
+    when (model.Selected.Value is null) {
+        Participation: ElementParticipation.Visible;
+    }
 }
 
 style EmptyEditorHeadingStyle {
@@ -197,29 +247,29 @@ style EmptyEditorBodyStyle {
 }
 
 public component EditorPane(NoteWorkspace model) {
-    <Column style={EditorPaneStyle with { Padding: model.IsWide ? Insets.Symmetric(24, 22) : Insets.Symmetric(16, 18); Participation: !model.IsCompact || model.ShowEditor ? ElementParticipation.Visible : ElementParticipation.Collapsed; }} name="notes.editor">
-        <Column style={EditorContentStyle with { Participation: model.Selected.Value is not null ? ElementParticipation.Visible : ElementParticipation.Collapsed; }} name="notes.editor-content">
-            <Row style={CompactEditorHeaderStyle with { Participation: model.IsCompact ? ElementParticipation.Visible : ElementParticipation.Collapsed; }} name="notes.compact-editor-header">
+    <Layout style={EditorPaneStyle(model.Breakpoints, model)} name="notes.editor">
+        <Layout style={EditorContentStyle(model)} name="notes.editor-content">
+            <Layout style={CompactEditorHeaderStyle(model.Breakpoints)} name="notes.compact-editor-header">
                 <Button onInvoke={() => model.BackToCollection()} style={BackActionStyle} name="notes.back">Back to collection</Button>
                 <Status content={() => model.StatusText} style={SaveStatusStyle} name="notes.compact-status" />
-            </Row>
+            </Layout>
             <TextField session={model.Title} focusTarget={model.TitleFocus} label="Title" style={TitleFieldStyle with { Enabled: model.CanEdit; }} name="notes.title" />
             <Text style={FieldLabelStyle}>Web address (optional)</Text>
-            <Row style={Style.Empty.Height(38).Spacing(8).CrossAlignment(LayoutAlignment.Center).Background(LightNotesTheme.Canvas)} name="notes.url-actions">
+            <Layout style={UrlActionsStyle} name="notes.url-actions">
                 <TextField session={model.Url} label="Web address" style={UrlFieldStyle with { Enabled: model.CanEdit; }} name="notes.url" />
                 <Button onInvoke={() => model.OpenLinkCommand.TryExecute()} style={QuietActionStyle with { Enabled: model.OpenLinkCommand.IsEnabled; }} name="notes.open-link">Open</Button>
-            </Row>
+            </Layout>
             <Text style={FieldLabelStyle}>Notes</Text>
             <TextArea session={model.Body} label="Notes" style={BodyFieldStyle with { Enabled: model.CanEdit; }} name="notes.body" />
             if (model.HasError) {
-                <Column style={ErrorStripStyle} name="notes.editor-error">
+                <Layout style={ErrorStripStyle} name="notes.editor-error">
                     <Text>{model.ErrorHeading}</Text>
                     <Text content={() => model.ErrorMessage ?? "Your draft is still here."} style={Style.Empty.FontSize(12).TextWrap(TextWrap.WordWithGraphemeFallback).MaxLines(2).TextOverflow(TextOverflow.Ellipsis)} name="notes.editor-error-detail" />
                     <Button onInvoke={() => model.RetryCommand.TryExecute()} style={QuietActionStyle with { Enabled: model.RetryCommand.IsEnabled; }} name="notes.editor-retry">Retry</Button>
-                </Column>
+                </Layout>
             }
-            <Row style={EditorFooterStyle} name="notes.editor-actions">
-                <Status content={() => model.StatusText} style={SaveStatusStyle with { Participation: model.IsCompact ? ElementParticipation.Collapsed : ElementParticipation.Visible; }} name="notes.status" />
+            <Layout style={EditorFooterStyle} name="notes.editor-actions">
+                <Status content={() => model.StatusText} style={EditorFooterStatusStyle(model.Breakpoints)} name="notes.status" />
                 if (model.HasValidationError && model.HasRecoveryDraft) {
                     <Button onInvoke={() => model.DiscardDraftCommand.TryExecute()} style={QuietActionStyle with { Enabled: model.DiscardDraftCommand.IsEnabled; }} name="notes.discard-draft">Discard draft</Button>
                 } else {
@@ -228,11 +278,11 @@ public component EditorPane(NoteWorkspace model) {
                 <Button onInvoke={() => model.ArchiveCommand.TryExecute()} style={QuietActionStyle with { Enabled: model.ArchiveCommand.IsEnabled; Participation: model.ShowArchived.Value ? ElementParticipation.Visible : ElementParticipation.Collapsed; }} name="notes.restore">Restore</Button>
                 <Button onInvoke={() => model.ArchiveCommand.TryExecute()} style={QuietActionStyle with { Enabled: model.ArchiveCommand.IsEnabled; Participation: !model.ShowArchived.Value ? ElementParticipation.Visible : ElementParticipation.Collapsed; }} name="notes.archive">Archive</Button>
                 <Button onInvoke={() => model.BackupCommand.TryExecute()} style={QuietActionStyle with { Enabled: model.BackupCommand.IsEnabled; }} name="notes.backup">Backup</Button>
-            </Row>
-        </Column>
-        <Column style={EmptyEditorStyle with { Participation: model.Selected.Value is null ? ElementParticipation.Visible : ElementParticipation.Collapsed; }} name="notes.editor-empty">
+            </Layout>
+        </Layout>
+        <Layout style={EmptyEditorStyle(model)} name="notes.editor-empty">
             <Text style={EmptyEditorHeadingStyle}>Select an item</Text>
             <Text style={EmptyEditorBodyStyle}>Choose a saved note from the list, or capture a link or thought above.</Text>
-        </Column>
-    </Column>
+        </Layout>
+    </Layout>
 }

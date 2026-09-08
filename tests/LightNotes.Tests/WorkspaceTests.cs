@@ -170,7 +170,6 @@ public sealed class WorkspaceTests
         model.Search.Text = "compact";
         fixture.Until(() => model.VisibleItems.Count == 1);
 
-        Assert.IsTrue(model.IsCompact);
         Assert.IsTrue(model.ShowEditor);
         model.BackToCollection();
 

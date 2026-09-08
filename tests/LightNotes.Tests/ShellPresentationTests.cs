@@ -10,6 +10,57 @@ namespace LightNotes.Tests;
 public sealed partial class ShellPresentationTests
 {
     [TestMethod]
+    public void RouteIntentRemainsIndependentOfWindowBreakpoint()
+    {
+        using var fixture = new Fixture();
+        var model = fixture.Model;
+        fixture.Pump(model.StartAsync());
+
+        using var composition = new Composition(fixture.Graph, "light-notes-route-review");
+        using var theme = new ThemeContext(composition.Root.Scope, LightNotesTheme.Create());
+        composition.Mount(composition.Root, theme, global::LightNotes.Components.AppView(model));
+        using var renderer = new SkiaSceneRenderer();
+
+        var selectedId = model.Selected.Value!.Id;
+        var wide = Scenario(
+            fixture,
+            composition,
+            renderer,
+            model,
+            "route-wide",
+            1180,
+            760,
+            1,
+            export: false
+        );
+        var search = Semantic(composition, "Search saved items", SemanticRole.TextField);
+        var title = Semantic(composition, "Title", SemanticRole.TextField);
+
+        model.Select(selectedId);
+        fixture.Drain();
+        Assert.AreEqual(NoteWorkspaceRoute.Editor, model.Route.Value);
+        Assert.IsTrue(model.ShowEditor && !model.ShowCollection);
+        wide = Scenario(
+            fixture,
+            composition,
+            renderer,
+            model,
+            "route-wide-editor",
+            1180,
+            760,
+            1,
+            export: false
+        );
+        AssertPresent(wide, search, true, "wide route collection");
+        AssertPresent(wide, title, true, "wide route editor");
+
+        model.BackToCollection();
+        fixture.Drain();
+        Assert.AreEqual(NoteWorkspaceRoute.Collection, model.Route.Value);
+        Assert.IsTrue(model.ShowCollection && !model.ShowEditor);
+    }
+
+    [TestMethod]
     public void ResponsiveShellRendersRealContentAndRetainsWorkspaceState()
     {
         using var fixture = new Fixture();
@@ -41,7 +92,6 @@ public sealed partial class ShellPresentationTests
         var url = Semantic(composition, "Web address", SemanticRole.TextField);
         var notesList = Semantic(composition, "Saved notes", SemanticRole.List);
         var save = Semantic(composition, "Save now", SemanticRole.Button);
-        Assert.AreEqual(NoteWorkspaceLayout.Wide, model.Layout);
         AssertBounds(wide, search, expectedWidth: 288, message: "wide collection width");
         AssertBounds(wide, navigation, maximumX: 184, message: "wide navigation track");
         AssertPresent(wide, title, true, "wide editor");
@@ -103,7 +153,6 @@ public sealed partial class ShellPresentationTests
         );
 
         var medium = Scenario(fixture, composition, renderer, model, "medium", 900, 760, 1);
-        Assert.AreEqual(NoteWorkspaceLayout.Medium, model.Layout);
         AssertBounds(medium, search, expectedWidth: 268, message: "medium collection width");
         AssertBounds(medium, navigation, maximumX: 80, message: "medium navigation rail");
         AssertPresent(medium, title, true, "medium editor");
@@ -138,7 +187,6 @@ public sealed partial class ShellPresentationTests
             1,
             export: false
         );
-        Assert.AreEqual(NoteWorkspaceLayout.Compact, model.Layout);
         model.Select(selectedId);
         _ = Scenario(fixture, composition, renderer, model, "compact-editor", 560, 760, 1);
         Assert.IsTrue(
@@ -227,7 +275,6 @@ public sealed partial class ShellPresentationTests
             760,
             1
         );
-        Assert.AreEqual(NoteWorkspaceLayout.Wide, model.Layout);
         AssertPresent(returnedWide, search, true, "returned wide collection");
         AssertPresent(returnedWide, title, true, "returned wide editor");
         Assert.AreSame(titleSession, model.Title, "Responsive layout replaced the title session.");
@@ -790,19 +837,6 @@ public sealed partial class ShellPresentationTests
         }
         Assert.IsNotNull(scene);
         Assert.IsTrue(accepted, $"{name} scene did not settle after bounded focus retries.");
-        Assert.AreEqual(
-            width,
-            model.Constraints.Current.Width,
-            0.01f,
-            $"{name} width was not published."
-        );
-        Assert.AreEqual(
-            height,
-            model.Constraints.Current.Height,
-            0.01f,
-            $"{name} height was not published."
-        );
-
         using var bitmap = new SKBitmap(
             checked((int)MathF.Ceiling(width * scale)),
             checked((int)MathF.Ceiling(height * scale)),

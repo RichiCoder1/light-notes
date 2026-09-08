@@ -1,33 +1,51 @@
 namespace LightNotes;
-style NavigationStyle {
+style NavigationStyle(WindowBreakpoints breakpoints) {
+    Axis: LayoutAxis.Column;
     Background: LightNotesTheme.Navigation;
     TextColor: LightNotesTheme.InverseInk;
     MainShrink: 0;
-    Padding: Insets.Symmetric(10, 14);
+    Width: 184;
+    Padding: Insets.Symmetric(12, 16);
     Spacing: 8;
     Clip: true;
+
+    when (!breakpoints.IsActive(LightNotesBreakpoints.Wide)) {
+        Width: 80;
+        Padding: Insets.Symmetric(8, 12);
+    }
+
+    when (!breakpoints.IsActive(LightNotesBreakpoints.Medium)) {
+        Participation: ElementParticipation.Collapsed;
+    }
 }
 
-style NavigationBrandStyle {
+style NavigationBrandStyle(WindowBreakpoints breakpoints) {
     FontWeight: FontWeight.SemiBold;
     FontSize: 17;
     TextColor: LightNotesTheme.InverseInk;
     Height: 34;
     MaxLines: 1;
     Overflow: TextOverflow.Ellipsis;
+
+    when (!breakpoints.IsActive(LightNotesBreakpoints.Wide)) {
+        Participation: ElementParticipation.Collapsed;
+    }
 }
 
-style NavigationItemStyle {
+style NavigationItemStyle(WindowBreakpoints breakpoints) {
     FontWeight: FontWeight.Medium;
     CornerRadius: 6;
     Height: 46;
-    Padding: Insets.Symmetric(8, 8);
+    Padding: Insets.Symmetric(10, 8);
     Background: LightNotesTheme.Navigation;
     TextColor: LightNotesTheme.InverseInk;
     FontSize: 13;
     TextWrap: TextWrap.WordWithGraphemeFallback;
     MaxLines: 2;
     Overflow: TextOverflow.Ellipsis;
+    when (!breakpoints.IsActive(LightNotesBreakpoints.Wide)) {
+        Padding: Insets.Symmetric(8, 8);
+    }
     when Selected {
         Background: LightNotesTheme.NavigationSelected;
     }
@@ -49,24 +67,29 @@ style NavigationItemStyle {
 }
 
 style NavigationSpacerStyle {
+    Axis: LayoutAxis.Column;
     MainGrow: 1;
     Background: LightNotesTheme.Navigation;
 }
 
-style NavigationHintStyle {
+style NavigationHintStyle(WindowBreakpoints breakpoints) {
     FontSize: 11;
     TextColor: LightNotesTheme.InverseInk;
     TextWrap: TextWrap.WordWithGraphemeFallback;
     MaxLines: 2;
     Overflow: TextOverflow.Ellipsis;
+
+    when (!breakpoints.IsActive(LightNotesBreakpoints.Wide)) {
+        Participation: ElementParticipation.Collapsed;
+    }
 }
 
 public component Navigation(NoteWorkspace model) {
-    <Column style={NavigationStyle with { Width: model.IsWide ? 184f : 80f; Padding: model.IsWide ? Insets.Symmetric(12, 16) : Insets.Symmetric(8, 12); Participation: model.IsCompact ? ElementParticipation.Collapsed : ElementParticipation.Visible; }} name="notes.navigation">
-        <Text style={NavigationBrandStyle with { Participation: model.IsWide ? ElementParticipation.Visible : ElementParticipation.Collapsed; }}>Light Notes</Text>
-        <Selectable content={() => model.IsWide ? "Inbox  " + model.InboxCount : "Inbox"} selected={() => !model.ShowArchived.Value} onSelect={() => model.ShowInbox()} style={NavigationItemStyle with { Padding: model.IsWide ? Insets.Symmetric(10, 8) : Insets.Symmetric(8, 8); }} name="notes.navigation-inbox" />
-        <Selectable content={() => model.IsWide ? "Archive  " + model.ArchiveCount : "Archive"} selected={() => model.ShowArchived.Value} onSelect={() => model.ShowArchive()} style={NavigationItemStyle with { Padding: model.IsWide ? Insets.Symmetric(10, 8) : Insets.Symmetric(8, 8); }} name="notes.navigation-archive" />
-        <Column style={NavigationSpacerStyle} />
-        <Text style={NavigationHintStyle with { Participation: model.IsWide ? ElementParticipation.Visible : ElementParticipation.Collapsed; }}>Ctrl+N to capture</Text>
-    </Column>
+    <Layout style={NavigationStyle(model.Breakpoints)} name="notes.navigation">
+        <Text style={NavigationBrandStyle(model.Breakpoints)}>Light Notes</Text>
+        <Selectable content={() => model.Breakpoints.IsActive(LightNotesBreakpoints.Wide) ? "Inbox  " + model.InboxCount : "Inbox"} selected={() => !model.ShowArchived.Value} onSelect={() => model.ShowInbox()} style={NavigationItemStyle(model.Breakpoints)} name="notes.navigation-inbox" />
+        <Selectable content={() => model.Breakpoints.IsActive(LightNotesBreakpoints.Wide) ? "Archive  " + model.ArchiveCount : "Archive"} selected={() => model.ShowArchived.Value} onSelect={() => model.ShowArchive()} style={NavigationItemStyle(model.Breakpoints)} name="notes.navigation-archive" />
+        <Layout style={NavigationSpacerStyle} />
+        <Text style={NavigationHintStyle(model.Breakpoints)}>Ctrl+N to capture</Text>
+    </Layout>
 }

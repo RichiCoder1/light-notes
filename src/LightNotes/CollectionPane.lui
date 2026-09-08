@@ -1,13 +1,30 @@
 namespace LightNotes;
-style CollectionPaneStyle {
+style CollectionPaneStyle(WindowBreakpoints breakpoints, NoteWorkspace model) {
+    Axis: LayoutAxis.Column;
     CrossAlignment: LayoutAlignment.Stretch;
     Background: LightNotesTheme.Surface;
     MainGrow: 0;
     MainShrink: 0;
+    Width: 320;
+    Participation: ElementParticipation.Visible;
     Clip: true;
     Padding: Insets.Symmetric(16, 18);
     Spacing: 14;
     Border: LightNotesTheme.DividerRight;
+
+    when (!breakpoints.IsActive(LightNotesBreakpoints.Wide) && breakpoints.IsActive(LightNotesBreakpoints.Medium)) {
+        Width: 300;
+    }
+
+    when (!breakpoints.IsActive(LightNotesBreakpoints.Medium) && model.ShowCollection) {
+        Width: null;
+        MainGrow: 1;
+        MainShrink: 1;
+    }
+
+    when (!breakpoints.IsActive(LightNotesBreakpoints.Medium) && !model.ShowCollection) {
+        Participation: ElementParticipation.Collapsed;
+    }
 }
 
 style CollectionHeaderStyle {
@@ -28,13 +45,23 @@ style CollectionTitleStyle {
     Overflow: TextOverflow.Ellipsis;
 }
 
-style CollectionCountStyle {
+style CollectionCountStyle(WindowBreakpoints breakpoints) {
     FontSize: 12;
     TextColor: LightNotesTheme.MutedInk;
     MaxLines: 1;
+
+    when (!breakpoints.IsActive(LightNotesBreakpoints.Medium)) {
+        Participation: ElementParticipation.Collapsed;
+    }
 }
 
-style CompactDestinationStyle {
+style SearchActionsStyle {
+    Axis: LayoutAxis.Row;
+    Height: 30;
+    MainAlignment: LayoutAlignment.End;
+}
+
+style CompactInboxStyle(WindowBreakpoints breakpoints, NoteWorkspace model) {
     CornerRadius: 5;
     Height: 30;
     Padding: Insets.Symmetric(7, 5);
@@ -50,6 +77,35 @@ style CompactDestinationStyle {
     when FocusVisible {
         Background: LightNotesTheme.Surface;
         FocusRing: LightNotesTheme.KeyboardFocus;
+    }
+
+    Participation: ElementParticipation.Collapsed;
+    when (!breakpoints.IsActive(LightNotesBreakpoints.Medium) && model.ShowArchived.Value) {
+        Participation: ElementParticipation.Visible;
+    }
+}
+
+style CompactArchiveStyle(WindowBreakpoints breakpoints, NoteWorkspace model) {
+    CornerRadius: 5;
+    Height: 30;
+    Padding: Insets.Symmetric(7, 5);
+    Background: LightNotesTheme.Surface;
+    TextColor: LightNotesTheme.AccentInk;
+    FontSize: 12;
+    when Hover {
+        Background: LightNotesTheme.Hover;
+    }
+    when Pressed {
+        Background: LightNotesTheme.SurfacePressed;
+    }
+    when FocusVisible {
+        Background: LightNotesTheme.Surface;
+        FocusRing: LightNotesTheme.KeyboardFocus;
+    }
+
+    Participation: ElementParticipation.Collapsed;
+    when (!breakpoints.IsActive(LightNotesBreakpoints.Medium) && !model.ShowArchived.Value) {
+        Participation: ElementParticipation.Visible;
     }
 }
 
@@ -90,7 +146,7 @@ style ClearSearchStyle {
     }
 }
 
-style CollectionListStyle {
+style CollectionListStyle(NoteWorkspace model) {
     Height: 180;
     MinWidth: 0;
     MainGrow: 1;
@@ -106,32 +162,32 @@ style CollectionListStyle {
     PressedThumbBrush: LightNotesTheme.ScrollbarThumbPressed;
     ThumbCornerRadius: 5;
     Background: LightNotesTheme.Surface;
+
+    Participation: ElementParticipation.Collapsed;
+    when (model.IsReady && model.VisibleItems.Count != 0) {
+        Participation: ElementParticipation.Visible;
+    }
 }
 
 public component CollectionPane(NoteWorkspace model) {
-    bool compact = model.IsCompact;
-    float? paneWidth = compact ? null : model.IsWide ? 320f : 300f;
-    float paneFlex = compact ? 1f : 0f;
-    ElementParticipation paneParticipation = !compact || model.ShowCollection ? ElementParticipation.Visible : ElementParticipation.Collapsed;
     bool hasQuery = model.Search.Text.Length != 0;
-    bool showList = model.IsReady && model.VisibleItems.Count != 0;
     void ClearSearch() => model.Search.Text = string.Empty;
-    <Column style={CollectionPaneStyle with { Width: paneWidth; MainGrow: paneFlex; MainShrink: paneFlex; Participation: paneParticipation; }} name="notes.collection">
-        <Row style={CollectionHeaderStyle} name="notes.collection-header">
+    <Layout style={CollectionPaneStyle(model.Breakpoints, model)} name="notes.collection">
+        <Layout style={CollectionHeaderStyle} name="notes.collection-header">
             <Text content={() => model.ShowArchived.Value ? "Archive" : "Inbox"} style={CollectionTitleStyle} name="notes.collection-title" />
-            <Text content={() => NotePresentation.CollectionCount(model)} style={CollectionCountStyle with { Participation: compact ? ElementParticipation.Collapsed : ElementParticipation.Visible; }} name="notes.collection-count" />
-            <Button onInvoke={() => model.ShowInbox()} style={CompactDestinationStyle with { Participation: compact && model.ShowArchived.Value ? ElementParticipation.Visible : ElementParticipation.Collapsed; }} name="notes.compact-inbox">Inbox</Button>
-            <Button onInvoke={() => model.ShowArchive()} style={CompactDestinationStyle with { Participation: compact && !model.ShowArchived.Value ? ElementParticipation.Visible : ElementParticipation.Collapsed; }} name="notes.compact-archive">Archive</Button>
-        </Row>
+            <Text content={() => NotePresentation.CollectionCount(model)} style={CollectionCountStyle(model.Breakpoints)} name="notes.collection-count" />
+            <Button onInvoke={() => model.ShowInbox()} style={CompactInboxStyle(model.Breakpoints, model)} name="notes.compact-inbox">Inbox</Button>
+            <Button onInvoke={() => model.ShowArchive()} style={CompactArchiveStyle(model.Breakpoints, model)} name="notes.compact-archive">Archive</Button>
+        </Layout>
         <TextField session={model.Search} focusTarget={model.SearchFocus} label="Search saved items" style={SearchFieldStyle with { Enabled: model.CanSearch; }} name="notes.search" />
         if (hasQuery) {
-            <Row style={Style.Empty.Height(30).MainAlignment(LayoutAlignment.End)} name="notes.search-actions">
+            <Layout style={SearchActionsStyle} name="notes.search-actions">
                 <Button onInvoke={ClearSearch} style={ClearSearchStyle} name="notes.clear-search">Clear search</Button>
-            </Row>
+            </Layout>
         }
         <CollectionLoading model={model} />
         <CollectionError model={model} />
         <CollectionEmpty model={model} clearSearch={ClearSearch} />
-        <VirtualizedList source={() => model.VisibleItems} key={item => item.Id} row={item => NoteRow(model, () => item.Value)} rowHeight={() => 72f} label="Saved notes" viewport={model.CollectionViewport} style={CollectionListStyle with { Participation: showList ? ElementParticipation.Visible : ElementParticipation.Collapsed; }} name="notes.list" />
-    </Column>
+        <VirtualizedList source={() => model.VisibleItems} key={item => item.Id} row={item => NoteRow(model, () => item.Value)} rowHeight={() => 72f} label="Saved notes" viewport={model.CollectionViewport} style={CollectionListStyle(model)} name="notes.list" />
+    </Layout>
 }

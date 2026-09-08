@@ -1,5 +1,6 @@
 namespace LightNotes;
 style ShellStyle {
+    Axis: LayoutAxis.Column;
     CrossAlignment: LayoutAlignment.Stretch;
     Background: LightNotesTheme.Canvas;
     TextColor: LightNotesTheme.Ink;
@@ -23,15 +24,15 @@ style WorkspaceStyle {
 
 internal component AppView(NoteWorkspace model) {
     <CommandScope bindings={model.Bindings}>
-        <ResponsiveContainer constraints={model.Constraints} style={ShellStyle}>
-            <Column style={ShellStyle} name="notes.shell">
+        <Layout breakpoints={model.Breakpoints} style={ShellStyle}>
+            <Layout style={ShellStyle} name="notes.shell">
                 <CaptureBar model={model} />
-                <Row style={WorkspaceStyle} name="notes.workspace">
+                <Layout style={WorkspaceStyle} name="notes.workspace">
                     <Navigation model={model} />
                     <CollectionPane model={model} />
                     <EditorPane model={model} />
-                </Row>
-            </Column>
-        </ResponsiveContainer>
+                </Layout>
+            </Layout>
+        </Layout>
     </CommandScope>
 }

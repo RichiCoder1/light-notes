@@ -1,5 +1,6 @@
 namespace LightNotes;
 style EmptyCollectionPanelStyle {
+    Axis: LayoutAxis.Column;
     MainGrow: 1;
     Padding: Insets.Symmetric(8, 30);
     Spacing: 10;
@@ -41,11 +42,11 @@ style EmptyCollectionActionStyle {
 }
 
 public component CollectionEmpty(NoteWorkspace model, Action clearSearch) {
-    <Column style={EmptyCollectionPanelStyle with { Participation: model.IsReady && model.VisibleItems.Count == 0 ? ElementParticipation.Visible : ElementParticipation.Collapsed; }} name="notes.collection-empty">
+    <Layout style={EmptyCollectionPanelStyle with { Participation: model.IsReady && model.VisibleItems.Count == 0 ? ElementParticipation.Visible : ElementParticipation.Collapsed; }} name="notes.collection-empty">
         <Text content={() => NotePresentation.EmptyHeading(model)} style={EmptyCollectionHeadingStyle} name="notes.collection-empty-title" />
         <Text content={() => NotePresentation.EmptyGuidance(model)} style={EmptyCollectionBodyStyle} name="notes.collection-empty-guidance" />
         if (model.Search.Text.Length != 0) {
             <Button onInvoke={clearSearch} style={EmptyCollectionActionStyle} name="notes.collection-empty-clear">Clear search</Button>
         }
-    </Column>
+    </Layout>
 }

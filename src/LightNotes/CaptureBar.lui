@@ -1,12 +1,16 @@
 namespace LightNotes;
-style CaptureBarStyle {
+style CaptureBarStyle(WindowBreakpoints breakpoints) {
     Background: LightNotesTheme.Canvas;
     Axis: LayoutAxis.Row;
     CrossAlignment: LayoutAlignment.Center;
     Spacing: 10;
     Height: 54;
-    Padding: Insets.Symmetric(16, 8);
+    Padding: Insets.Symmetric(24, 8);
     Border: LightNotesTheme.DividerBottom;
+
+    when (!breakpoints.IsActive(LightNotesBreakpoints.Wide)) {
+        Padding: Insets.Symmetric(16, 8);
+    }
 }
 
 style CaptureFieldStyle {
@@ -56,8 +60,8 @@ style PrimaryActionStyle {
 }
 
 public component CaptureBar(NoteWorkspace model) {
-    <Row style={CaptureBarStyle with { Padding: model.IsWide ? Insets.Symmetric(24, 8) : Insets.Symmetric(16, 8); }} name="notes.capture-bar">
+    <Layout style={CaptureBarStyle(model.Breakpoints)} name="notes.capture-bar">
         <TextField session={model.Capture} focusTarget={model.CaptureFocus} label="Capture a link or thought" style={CaptureFieldStyle with { Enabled: model.CanEdit; }} name="notes.capture" />
         <Button onInvoke={() => model.CaptureCommand.TryExecute()} style={PrimaryActionStyle with { Enabled: model.CaptureCommand.IsEnabled; }} name="notes.capture-action">Add</Button>
-    </Row>
+    </Layout>
 }
