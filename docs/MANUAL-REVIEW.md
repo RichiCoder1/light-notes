@@ -27,6 +27,7 @@ Try these together rather than treating them as release gates:
 - Open the longest title, address and note. Read and edit near the end, then narrow to the minimum size. Look for clipped actions, cramped text and confusing scroll ownership.
 - Judge spacing, contrast, reading comfort, navigation weight, row density, empty states and save feedback. Note the width and selected item when reporting a layout problem.
 - Compare pointer hover, held press, selected press and disabled states. Move between editor text and buttons, watch the idle caret, and try wheel scrolling, dragging a thumb and clicking its track. Switch Inbox/Archive while a search is present and repeat the long-note archive/restore round trip.
+- Select part of a title, address, or note body and right-click it. Confirm the selection remains visible; try the enabled Undo/Redo and clipboard commands, invoke Select all from a collapsed caret, then dismiss with Escape and confirm focus returns to the editor. Reopen the menu and close the owner window to exercise popup lifetime during shutdown.
 
 A helpful feedback note contains: what you were trying to do, what felt wrong, what you expected, and whether it concerns the app or a reusable framework capability. Screenshots are useful for visual feedback but optional.
 
@@ -40,7 +41,7 @@ New reusable presentation values provide inset borders, device-pixel hairlines a
 
 Authoring questions to evaluate:
 
-- Conditional regions introduce a layout boundary. The growing list and editor use retained participation so their flex sizing reaches the pane; an outer `if` around those sections initially left unused space. Review whether that behavior is discoverable or whether layout-transparent structural regions deserve a framework follow-up.
+- Unstyled conditional regions forward their active child's parent-facing layout sizing, so responsive branches can fill a flex pane without app-specific wrapper dimensions. Review whether that structural behavior and the effect of explicitly styling a region are discoverable.
 - Does one component per `.lui` file help navigation, or does a small composed surface create too many files?
 - Text controls need deliberate cross-axis stretching and shrink bounds when content can exceed the viewport. Review whether the defaults and diagnostics make this clear, especially for long single-line values inside a column.
 - Are typed tokens and `style with { ... }` readable for reactive widths, participation and enabled state? Would named responsive variants improve the common case?
@@ -80,6 +81,8 @@ A component's combined state rule can outrank an authored single-state rule. Not
 
 Try an unfinished address or empty title, switch collections, and return. The draft should remain editable and report when its recovery record is saved. Close and reopen to check recovery, then use Discard draft to return to the last valid autosave. Each collection should retain its own selection, search text and scroll position while switching immediately through cached records.
 
-Right-click a different note: its outline marks the menu target while the existing note remains selected and open. Open note changes that selection explicitly; Archive/Restore acts on the target. Text fields offer the standard editing menu. Check keyboard invocation, Escape, outside-click dismissal and menus near window/screen edges. The first menu presenter uses Lucent-rendered popup windows; native Windows presentation remains an opt-in future slice.
+Right-click a different note: its outline marks the menu target while the existing note remains selected and open. Open note changes that selection explicitly; Archive/Restore and Open web address act on the target. Right-click selected text in a field or note body: the standard menu offers Undo, Redo, Cut, Copy, Paste, and Select all, with unavailable commands disabled. Opening it should preserve the selection; command invocation and Escape should dismiss it and restore editor focus. Also check outside-click dismissal, menus near window/screen edges, and closing the owner while a menu is open.
+
+Light Notes uses Lucent-rendered popup windows. The pinned framework also contains a native Windows adapter for eligible standard menus, but this app does not expose a presenter setting. Custom or explicitly styled menu content remains with the Lucent presenter when a native host cannot represent it.
 
 For the framework and `.lui` pass, review `NoteRow`'s local `menuOpen` state and `ContextMenu.onOpenChanged`, `NoteMenu`'s command content, and `NoteDraftWriter`'s separation from mounted components. Its menu outline selects the focus-ring token while the menu is open and resolves it through the active theme; closing the menu selects `FocusRing.None`. This exercises [Lucent's reactive token selection](https://github.com/RichiCoder1/lucent/issues/102) without bypassing the theme with a fallback value. Report any state that is unclear or unexpectedly lost, along with the preceding action and the active data directory's crash report when one exists.

@@ -49,6 +49,16 @@ public sealed partial class ShellPresentationTests
         AssertNearBottom(wide, save, 760, "wide editor actions");
         AssertSemantic(composition, search, true, "wide search");
         AssertSemantic(composition, title, true, "wide title");
+        var bodyText = SceneNodes(wide.Nodes)
+            .OfType<TextSceneNode>()
+            .Single(node =>
+                node.Identity.Element.ElementId == body.Identity.ElementId
+                && node.Identity.Kind == SceneNodeKind.Text
+            );
+        Assert.IsTrue(
+            bodyText.Bounds.Y <= Bounds(wide, body).Y + 24,
+            "The first note line must begin near the editor's top padding, not its vertical center."
+        );
 
         var scrollAnchorLabel = NotePresentation.RowLabel(model.VisibleItems[4]);
         var scrollAnchor = Semantic(composition, scrollAnchorLabel, SemanticRole.ListItem);
