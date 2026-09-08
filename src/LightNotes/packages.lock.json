@@ -4,33 +4,33 @@
     "net10.0-windows10.0.26100": {
       "Lucent.Hosting": {
         "type": "Direct",
-        "requested": "[0.3.0-dev.37.1, 0.3.0-dev.37.1]",
-        "resolved": "0.3.0-dev.37.1",
-        "contentHash": "jCFLJE3347afT2kyVN3RU8nEjFU2IAN9yQ6GGS3xJ/tUzQMM4jwwUDKQScokT/RBQlKrdpZxvoXWPUPs+fRYrA==",
+        "requested": "[0.3.0-dev.41.1, 0.3.0-dev.41.1]",
+        "resolved": "0.3.0-dev.41.1",
+        "contentHash": "krj2Ynoq+ohdJE8i2HaGBUs3Jcqv/emtzVuREsqTzwdk1C6IxgNggHUKsuh12yNkge17kibXPSw1O4SOcb/VIg==",
         "dependencies": {
-          "Lucent.Core": "0.3.0-dev.37.1",
+          "Lucent.Core": "0.3.0-dev.41.1",
           "Microsoft.Extensions.Hosting": "10.0.11"
         }
       },
       "Lucent.Platform.Windows": {
         "type": "Direct",
-        "requested": "[0.3.0-dev.37.1, 0.3.0-dev.37.1]",
-        "resolved": "0.3.0-dev.37.1",
-        "contentHash": "94d1Jh4S3TfCRyc2hfsEAK+ru74i79gh8pjhyUh37teMgqVAMdrAoBjF+Y1UCatk3hePB6Rn8YOGvGThwwbz/A==",
+        "requested": "[0.3.0-dev.41.1, 0.3.0-dev.41.1]",
+        "resolved": "0.3.0-dev.41.1",
+        "contentHash": "eLW/MO8XXijc9puTSKBU/CPJ70ejvvlq5R+0inDU6aZ+D5B/IzK4eF98yb8DQDL/B49DR1zo0RCAwCfAbv4YhQ==",
         "dependencies": {
-          "Lucent.Core": "0.3.0-dev.37.1",
-          "Lucent.Renderer.Skia": "0.3.0-dev.37.1",
+          "Lucent.Core": "0.3.0-dev.41.1",
+          "Lucent.Renderer.Skia": "0.3.0-dev.41.1",
           "SDL3-CS": "3.4.14.1",
           "SDL3-CS.Windows": "3.4.14.1"
         }
       },
       "Lucent.Reactive.R3": {
         "type": "Direct",
-        "requested": "[0.3.0-dev.37.1, 0.3.0-dev.37.1]",
-        "resolved": "0.3.0-dev.37.1",
-        "contentHash": "jYhKjfwyqjtUqJz2xY2in2i4dj1WWnYwSiWrk87O+LVZxyhrxagUHu+3bEULAkYysx73INEvza7ioRKnUQoH4w==",
+        "requested": "[0.3.0-dev.41.1, 0.3.0-dev.41.1]",
+        "resolved": "0.3.0-dev.41.1",
+        "contentHash": "aLApz5jQ/easMqa8/inC7XClBjQJAGMi+YhnJI5zrIOWDpWRKAgBgiM/0M2aDB0HsyAuQuJBUa99mua/RQghDA==",
         "dependencies": {
-          "Lucent.Core": "0.3.0-dev.37.1",
+          "Lucent.Core": "0.3.0-dev.41.1",
           "R3": "1.3.1"
         }
       },
@@ -61,15 +61,15 @@
       },
       "Lucent.Core": {
         "type": "Transitive",
-        "resolved": "0.3.0-dev.37.1",
-        "contentHash": "Ry5wJRJ6fyk745w3wGvPhAB1AJT3JiTgcR7PMYXYL9ikWJrS0p37z4ipDycjkoc8yQv7IEfzk3/MBVU7yJ2myg=="
+        "resolved": "0.3.0-dev.41.1",
+        "contentHash": "oeFkAGH3BAS7lnd35Ye8uqSe+Hilu8Ee+5zCQ5kXHsxcJQLQF61RHsVhUEwtbzJe2bsqbbjPcFPsyOqILb6Xjw=="
       },
       "Lucent.Renderer.Skia": {
         "type": "Transitive",
-        "resolved": "0.3.0-dev.37.1",
-        "contentHash": "kMNktTxt5NIl1OeVXG/eI1YO5HgpnPbo8nhNK3xFoyTihR1QNrjExHAno6RTy2+2v4OnDRFzE6W7yr9Sq0ELaQ==",
+        "resolved": "0.3.0-dev.41.1",
+        "contentHash": "fS3KTvN7U9iv35BdWLSIjiksGzFGxRKNt6jlM81k/RO++89hCcTdi8AKIfyJTwgSDNqs4S2ua6YmsjWh2nQu+A==",
         "dependencies": {
-          "Lucent.Core": "0.3.0-dev.37.1",
+          "Lucent.Core": "0.3.0-dev.41.1",
           "SkiaSharp": "4.151.1",
           "SkiaSharp.HarfBuzz": "4.151.1"
         }
@@ -450,12 +450,12 @@
     "net10.0-windows10.0.26100/win-x64": {
       "Lucent.Platform.Windows": {
         "type": "Direct",
-        "requested": "[0.3.0-dev.37.1, 0.3.0-dev.37.1]",
-        "resolved": "0.3.0-dev.37.1",
-        "contentHash": "94d1Jh4S3TfCRyc2hfsEAK+ru74i79gh8pjhyUh37teMgqVAMdrAoBjF+Y1UCatk3hePB6Rn8YOGvGThwwbz/A==",
+        "requested": "[0.3.0-dev.41.1, 0.3.0-dev.41.1]",
+        "resolved": "0.3.0-dev.41.1",
+        "contentHash": "eLW/MO8XXijc9puTSKBU/CPJ70ejvvlq5R+0inDU6aZ+D5B/IzK4eF98yb8DQDL/B49DR1zo0RCAwCfAbv4YhQ==",
         "dependencies": {
-          "Lucent.Core": "0.3.0-dev.37.1",
-          "Lucent.Renderer.Skia": "0.3.0-dev.37.1",
+          "Lucent.Core": "0.3.0-dev.41.1",
+          "Lucent.Renderer.Skia": "0.3.0-dev.41.1",
           "SDL3-CS": "3.4.14.1",
           "SDL3-CS.Windows": "3.4.14.1"
         }

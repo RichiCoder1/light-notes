@@ -57,7 +57,10 @@ internal static class Program
                     _ = workspace.StartAsync();
                     return Components.AppView(workspace);
                 },
-                services => services.GetRequiredService<NoteWorkspace>().PrepareCloseAsync()
+                (services, cancellationToken) =>
+                    services
+                        .GetRequiredService<NoteWorkspace>()
+                        .PrepareCloseAsync(cancellationToken)
             );
             return LucentApplication
                 .CreateBuilder()

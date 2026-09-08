@@ -72,6 +72,57 @@ public sealed class WorkspaceTests
     }
 
     [TestMethod]
+    public void CancelledCloseStopsWaitingButAnAcceptedSaveStillCompletes()
+    {
+        var storage = new ControlledStorage(ControlledStorage.Record("Initial", "Before"));
+        using var fixture = new Fixture(storage);
+        var model = fixture.Model;
+        fixture.Pump(model.StartAsync());
+        model.Body.Text = "Accepted before close";
+        Assert.IsTrue(model.SaveCommand.TryExecute());
+        fixture.Until(() => storage.Saves.Count == 1);
+
+        using var cancellation = new CancellationTokenSource();
+        var close = model.PrepareCloseAsync(cancellation.Token).AsTask();
+        cancellation.Cancel();
+        try
+        {
+            fixture.Pump(close);
+            Assert.Fail("Cancelled close preparation completed successfully.");
+        }
+        catch (OperationCanceledException) { }
+
+        Assert.IsFalse(model.HasError);
+        storage.CompleteSave(0);
+        fixture.Until(() => !model.IsBusy);
+        Assert.AreEqual("Accepted before close", storage.Current.Body);
+        Assert.IsFalse(model.HasError);
+    }
+
+    [TestMethod]
+    public void CancelledStorageFencePropagatesWithoutBecomingASaveError()
+    {
+        var storage = new CancellableCloseStorage();
+        using var fixture = new Fixture(storage);
+        var model = fixture.Model;
+        fixture.Pump(model.StartAsync());
+        using var cancellation = new CancellationTokenSource();
+        var close = model.PrepareCloseAsync(cancellation.Token).AsTask();
+        fixture.Until(() => storage.CloseStarted);
+
+        cancellation.Cancel();
+        try
+        {
+            fixture.Pump(close);
+            Assert.Fail("Cancelled close preparation completed successfully.");
+        }
+        catch (OperationCanceledException) { }
+
+        Assert.AreEqual(cancellation.Token, storage.CloseToken);
+        Assert.IsFalse(model.HasError);
+    }
+
+    [TestMethod]
     public void SwitchingRecordsSavesThePreviousDraftWithoutLosingSessionIdentity()
     {
         using var fixture = new Fixture();
@@ -935,7 +986,8 @@ public sealed class WorkspaceTests
 
         public Task BackupAsync(string destinationPath) => throw new NotSupportedException();
 
-        public Task<bool> PrepareCloseAsync() => Task.FromResult(true);
+        public Task<bool> PrepareCloseAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult(true);
 
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }
@@ -984,7 +1036,8 @@ public sealed class WorkspaceTests
 
         public Task BackupAsync(string destinationPath) => throw new NotSupportedException();
 
-        public Task<bool> PrepareCloseAsync() => Task.FromResult(true);
+        public Task<bool> PrepareCloseAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult(true);
 
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
 
@@ -1046,7 +1099,8 @@ public sealed class WorkspaceTests
 
         public Task BackupAsync(string destinationPath) => throw new NotSupportedException();
 
-        public Task<bool> PrepareCloseAsync() => Task.FromResult(true);
+        public Task<bool> PrepareCloseAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult(true);
 
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
 
@@ -1110,7 +1164,8 @@ public sealed class WorkspaceTests
 
         public Task BackupAsync(string destinationPath) => throw new NotSupportedException();
 
-        public Task<bool> PrepareCloseAsync() => Task.FromResult(!HasUnresolvedWriteFailures);
+        public Task<bool> PrepareCloseAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult(!HasUnresolvedWriteFailures);
 
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }
@@ -1154,7 +1209,40 @@ public sealed class WorkspaceTests
 
         public Task BackupAsync(string destinationPath) => throw new NotSupportedException();
 
-        public Task<bool> PrepareCloseAsync() => Task.FromResult(false);
+        public Task<bool> PrepareCloseAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult(false);
+
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+    }
+
+    private sealed class CancellableCloseStorage : INoteWorkspaceStorage
+    {
+        public bool HasUnresolvedWriteFailures => false;
+        public bool CloseStarted { get; private set; }
+        public CancellationToken CloseToken { get; private set; }
+
+        public Task<NoteRecord> SaveAsync(NoteDraft draft) => throw new NotSupportedException();
+
+        public Task<NoteRecord?> GetAsync(Guid id) => Task.FromResult<NoteRecord?>(null);
+
+        public Task<IReadOnlyList<NoteRecord>> ListAsync(bool includeArchived) =>
+            Task.FromResult<IReadOnlyList<NoteRecord>>([]);
+
+        public Task<NoteRecord> ArchiveAsync(Guid id, bool archived) =>
+            throw new NotSupportedException();
+
+        public Task<WriteRetryResult> RetryFailedWritesAsync() =>
+            Task.FromResult(new WriteRetryResult(0, 0, 0));
+
+        public Task BackupAsync(string destinationPath) => throw new NotSupportedException();
+
+        public async Task<bool> PrepareCloseAsync(CancellationToken cancellationToken = default)
+        {
+            CloseToken = cancellationToken;
+            CloseStarted = true;
+            await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+            return true;
+        }
 
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }

@@ -840,39 +840,48 @@ public sealed class NoteWorkspace : IAsyncDisposable
         _status.Value = "Backup created in your Light Notes data folder";
     }
 
-    public async ValueTask<bool> PrepareCloseAsync()
+    public async ValueTask<bool> PrepareCloseAsync(CancellationToken cancellationToken = default)
     {
         _closing = true;
         _autosave.Cancel();
-        await Task.WhenAll(
-            _pending,
-            _refreshTask,
-            _draftWriter?.DrainAsync() ?? Task.CompletedTask
-        );
-        if (_store is null)
-            return true;
-        await Run(SaveCurrentAsync, "Finishing your save...");
-        if (_error.Value is not null)
+        try
         {
+            await Task.WhenAll(
+                    _pending,
+                    _refreshTask,
+                    _draftWriter?.DrainAsync() ?? Task.CompletedTask
+                )
+                .WaitAsync(cancellationToken);
+            if (_store is null)
+                return true;
+            await Run(SaveCurrentAsync, "Finishing your save...").WaitAsync(cancellationToken);
+            if (_error.Value is not null)
+            {
+                _closing = false;
+                return false;
+            }
+            try
+            {
+                if (await _store.PrepareCloseAsync(cancellationToken).WaitAsync(cancellationToken))
+                    return true;
+                _errorHeading.Value = "Could not save";
+                _error.Value = "Some accepted changes are not yet saved.";
+                _retry = SaveCurrentAsync;
+            }
+            catch (Exception error) when (error is not OperationCanceledException)
+            {
+                _errorHeading.Value = "Could not save";
+                _error.Value = error.Message;
+                _retry = SaveCurrentAsync;
+            }
             _closing = false;
             return false;
         }
-        try
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-            if (await _store.PrepareCloseAsync())
-                return true;
-            _errorHeading.Value = "Could not save";
-            _error.Value = "Some accepted changes are not yet saved.";
-            _retry = SaveCurrentAsync;
+            _closing = false;
+            throw;
         }
-        catch (Exception error)
-        {
-            _errorHeading.Value = "Could not save";
-            _error.Value = error.Message;
-            _retry = SaveCurrentAsync;
-        }
-        _closing = false;
-        return false;
     }
 
     private INoteWorkspaceStorage Store =>

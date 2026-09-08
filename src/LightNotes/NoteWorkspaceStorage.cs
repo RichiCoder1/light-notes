@@ -28,7 +28,7 @@ internal interface INoteWorkspaceStorage : IAsyncDisposable
 
     Task BackupAsync(string destinationPath);
 
-    Task<bool> PrepareCloseAsync();
+    Task<bool> PrepareCloseAsync(CancellationToken cancellationToken = default);
 }
 
 internal sealed class NoteWorkspaceStorage(NoteStore store) : INoteWorkspaceStorage
@@ -60,7 +60,8 @@ internal sealed class NoteWorkspaceStorage(NoteStore store) : INoteWorkspaceStor
 
     public Task BackupAsync(string destinationPath) => store.BackupAsync(destinationPath);
 
-    public Task<bool> PrepareCloseAsync() => store.PrepareCloseAsync();
+    public Task<bool> PrepareCloseAsync(CancellationToken cancellationToken = default) =>
+        store.PrepareCloseAsync(cancellationToken);
 
     public ValueTask DisposeAsync() => store.DisposeAsync();
 }
