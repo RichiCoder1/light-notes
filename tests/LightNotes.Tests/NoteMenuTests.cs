@@ -16,6 +16,7 @@ public sealed partial class ShellPresentationTests
         model.Url.Text = "unfinished-address";
 
         using var composition = new Composition(fixture.Graph, "note-menu-review");
+        composition.ConfigureImages(new ImageCache(new SkiaImagePreparer()));
         using var theme = new ThemeContext(composition.Root.Scope, LightNotesTheme.Create());
         composition.Mount(composition.Root, theme, global::LightNotes.Components.AppView(model));
         using var renderer = new SkiaSceneRenderer();

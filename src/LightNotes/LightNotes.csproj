@@ -14,6 +14,12 @@
     <PackageReference Include="Lucent.Platform.Windows" Version="[$(LucentVersion)]" />
     <PackageReference Include="Lucent.Hosting" Version="[$(LucentVersion)]" />
     <PackageReference Include="Lucent.Reactive.R3" Version="[$(LucentVersion)]" />
+    <PackageReference Include="Lucent.Icons.Lucide" Version="[$(LucentVersion)]" />
+    <LucentAsset
+      Include="Artwork/light-notes.svg"
+      Path="application/light-notes.svg"
+      ApplicationIcon="true"
+    />
     <None
       Include="../../notices/*"
       Link="notices/%(Filename)%(Extension)"

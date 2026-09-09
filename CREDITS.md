@@ -6,7 +6,7 @@
 
 Light Notes is an independent first-party consumer of [Lucent](https://github.com/RichiCoder1/lucent), with an exact experimental NuGet version recorded in global.json and Directory.Build.props. Light Notes and Lucent use the MIT license; ecosystem packages keep their own terms.
 
-Lucent's [dependency ledger](https://github.com/RichiCoder1/lucent/blob/b69ade6/CREDITS.md) identifies SkiaSharp/HarfBuzzSharp, SDL3-CS/SDL3, .NET, the VC runtime, Microsoft.Extensions.Hosting, and build-only Roslyn dependencies. Package targets retain runtime notices in published output. The app uses installed system fonts and ships no additional artwork or fonts.
+Lucent's [dependency ledger](https://github.com/RichiCoder1/lucent/blob/a83761967f5f42d76179079c7b5129f897b5481e/CREDITS.md) identifies SkiaSharp/HarfBuzzSharp, SDL3-CS/SDL3, Svg.Skia's secure SVG adapter, .NET, the VC runtime, Microsoft.Extensions.Hosting, and build-only Roslyn dependencies. Package targets retain runtime notices in published output. The app uses installed system fonts, ships the original `src/LightNotes/Artwork/light-notes.svg` application artwork under the repository license, and consumes the separately licensed Lucide artwork package with its upstream notices.
 
 The composition uses Lucent's standard control theme with application-owned presentation tokens. Product design follows the [links-and-notes experience](https://github.com/RichiCoder1/lucent/tree/b69ade6/docs/design/links-and-notes); the daily-use workflow continues after the responsive-shell review.
 

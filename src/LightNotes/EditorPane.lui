@@ -49,6 +49,22 @@ style CompactEditorHeaderStyle(WindowBreakpoints breakpoints) {
     }
 }
 
+style EditorStatusIconStyle(WindowBreakpoints breakpoints) {
+    Width: 16;
+    Height: 16;
+    MainShrink: 0;
+
+    when (!breakpoints.IsActive(LightNotesBreakpoints.Medium)) {
+        Participation: ElementParticipation.Collapsed;
+    }
+}
+
+style UrlLeadingIconStyle {
+    Width: 16;
+    Height: 16;
+    MainShrink: 0;
+}
+
 style BackActionStyle {
     CornerRadius: 5;
     Height: 32;
@@ -246,18 +262,25 @@ style EmptyEditorBodyStyle {
     Overflow: TextOverflow.Ellipsis;
 }
 
+style EmptyEditorIconStyle {
+    Width: 24;
+    Height: 24;
+    MainShrink: 0;
+}
+
 public component EditorPane(NoteWorkspace model) {
     <Layout style={EditorPaneStyle(model.Breakpoints, model)} name="notes.editor">
         <Layout style={EditorContentStyle(model)} name="notes.editor-content">
             <Layout style={CompactEditorHeaderStyle(model.Breakpoints)} name="notes.compact-editor-header">
-                <Button onInvoke={() => model.BackToCollection()} style={BackActionStyle} name="notes.back">Back to collection</Button>
+                <Button leadingIcon={Lucent.Icons.Lucide.LucideIcons.ArrowLeft} onInvoke={() => model.BackToCollection()} style={BackActionStyle} name="notes.back">Back to collection</Button>
                 <Status content={() => model.StatusText} style={SaveStatusStyle} name="notes.compact-status" />
             </Layout>
             <TextField session={model.Title} focusTarget={model.TitleFocus} label="Title" style={TitleFieldStyle with { Enabled: model.CanEdit; }} name="notes.title" />
             <Text style={FieldLabelStyle}>Web address (optional)</Text>
             <Layout style={UrlActionsStyle} name="notes.url-actions">
+                <Icon source={Lucent.Icons.Lucide.LucideIcons.Link} style={UrlLeadingIconStyle} />
                 <TextField session={model.Url} label="Web address" style={UrlFieldStyle with { Enabled: model.CanEdit; }} name="notes.url" />
-                <Button onInvoke={() => model.OpenLinkCommand.TryExecute()} style={QuietActionStyle with { Enabled: model.OpenLinkCommand.IsEnabled; }} name="notes.open-link">Open</Button>
+                <Button leadingIcon={Lucent.Icons.Lucide.LucideIcons.ArrowRight} onInvoke={() => model.OpenLinkCommand.TryExecute()} style={QuietActionStyle with { Enabled: model.OpenLinkCommand.IsEnabled; }} name="notes.open-link">Open</Button>
             </Layout>
             <Text style={FieldLabelStyle}>Notes</Text>
             <TextArea session={model.Body} label="Notes" style={BodyFieldStyle with { Enabled: model.CanEdit; }} name="notes.body" />
@@ -265,22 +288,24 @@ public component EditorPane(NoteWorkspace model) {
                 <Layout style={ErrorStripStyle} name="notes.editor-error">
                     <Text>{model.ErrorHeading}</Text>
                     <Text content={() => model.ErrorMessage ?? "Your draft is still here."} style={Style.Empty.FontSize(12).TextWrap(TextWrap.WordWithGraphemeFallback).MaxLines(2).TextOverflow(TextOverflow.Ellipsis)} name="notes.editor-error-detail" />
-                    <Button onInvoke={() => model.RetryCommand.TryExecute()} style={QuietActionStyle with { Enabled: model.RetryCommand.IsEnabled; }} name="notes.editor-retry">Retry</Button>
+                    <Button leadingIcon={Lucent.Icons.Lucide.LucideIcons.RefreshCw} onInvoke={() => model.RetryCommand.TryExecute()} style={QuietActionStyle with { Enabled: model.RetryCommand.IsEnabled; }} name="notes.editor-retry">Retry</Button>
                 </Layout>
             }
             <Layout style={EditorFooterStyle} name="notes.editor-actions">
+                <Icon source={() => model.HasError || model.HasValidationError ? Lucent.Icons.Lucide.LucideIcons.CircleDot : model.IsBusy || model.IsSaving || model.IsDirty ? Lucent.Icons.Lucide.LucideIcons.Ellipsis : Lucent.Icons.Lucide.LucideIcons.CircleCheck} style={EditorStatusIconStyle(model.Breakpoints)} />
                 <Status content={() => model.StatusText} style={EditorFooterStatusStyle(model.Breakpoints)} name="notes.status" />
                 if (model.HasValidationError && model.HasRecoveryDraft) {
-                    <Button onInvoke={() => model.DiscardDraftCommand.TryExecute()} style={QuietActionStyle with { Enabled: model.DiscardDraftCommand.IsEnabled; }} name="notes.discard-draft">Discard draft</Button>
+                    <Button leadingIcon={Lucent.Icons.Lucide.LucideIcons.Trash} onInvoke={() => model.DiscardDraftCommand.TryExecute()} style={QuietActionStyle with { Enabled: model.DiscardDraftCommand.IsEnabled; }} name="notes.discard-draft">Discard draft</Button>
                 } else {
                     <Button onInvoke={() => model.SaveCommand.TryExecute()} style={QuietActionStyle with { Enabled: model.SaveCommand.IsEnabled; }} name="notes.save">Save now</Button>
                 }
-                <Button onInvoke={() => model.ArchiveCommand.TryExecute()} style={QuietActionStyle with { Enabled: model.ArchiveCommand.IsEnabled; Participation: model.ShowArchived.Value ? ElementParticipation.Visible : ElementParticipation.Collapsed; }} name="notes.restore">Restore</Button>
-                <Button onInvoke={() => model.ArchiveCommand.TryExecute()} style={QuietActionStyle with { Enabled: model.ArchiveCommand.IsEnabled; Participation: !model.ShowArchived.Value ? ElementParticipation.Visible : ElementParticipation.Collapsed; }} name="notes.archive">Archive</Button>
+                <Button leadingIcon={Lucent.Icons.Lucide.LucideIcons.Archive} onInvoke={() => model.ArchiveCommand.TryExecute()} style={QuietActionStyle with { Enabled: model.ArchiveCommand.IsEnabled; Participation: model.ShowArchived.Value ? ElementParticipation.Visible : ElementParticipation.Collapsed; }} name="notes.restore">Restore</Button>
+                <Button leadingIcon={Lucent.Icons.Lucide.LucideIcons.Archive} onInvoke={() => model.ArchiveCommand.TryExecute()} style={QuietActionStyle with { Enabled: model.ArchiveCommand.IsEnabled; Participation: !model.ShowArchived.Value ? ElementParticipation.Visible : ElementParticipation.Collapsed; }} name="notes.archive">Archive</Button>
                 <Button onInvoke={() => model.BackupCommand.TryExecute()} style={QuietActionStyle with { Enabled: model.BackupCommand.IsEnabled; }} name="notes.backup">Backup</Button>
             </Layout>
         </Layout>
         <Layout style={EmptyEditorStyle(model)} name="notes.editor-empty">
+            <Icon source={Lucent.Icons.Lucide.LucideIcons.FileText} style={EmptyEditorIconStyle} />
             <Text style={EmptyEditorHeadingStyle}>Select an item</Text>
             <Text style={EmptyEditorBodyStyle}>Choose a saved note from the list, or capture a link or thought above.</Text>
         </Layout>

@@ -59,7 +59,23 @@ style NoteRowTitleStyle {
 }
 
 style NoteRowMetadataStyle {
+    Axis: LayoutAxis.Row;
+    CrossAlignment: LayoutAlignment.Center;
+    Spacing: 4;
     Height: 16;
+    MinWidth: 0;
+    MainShrink: 1;
+}
+
+style NoteRowMetadataIconStyle {
+    Width: 12;
+    Height: 12;
+    MainShrink: 0;
+}
+
+style NoteRowMetadataTextStyle {
+    MainGrow: 1;
+    MainShrink: 1;
     MinWidth: 0;
     FontSize: 11;
     TextColor: LightNotesTheme.MutedInk;
@@ -75,7 +91,10 @@ public component NoteRow(NoteWorkspace model, Func<NoteRecord> item) {
     <ContextMenu menu={() => Components.NoteMenu(model, item())} onOpenChanged={MenuOpenChanged}>
         <Selectable label={() => NotePresentation.RowLabel(item())} selected={() => model.Selected.Value != null && model.Selected.Value.Id == item().Id} onSelect={() => model.Select(item().Id)} style={NoteRowStyle with { FocusRing: menuOpen ? LightNotesTheme.KeyboardFocus : FocusRing.None; }} name="notes.row">
             <Text style={NoteRowTitleStyle}>{NotePresentation.RowTitle(item())}</Text>
-            <Text style={NoteRowMetadataStyle}>{NotePresentation.RowMetadata(item())}</Text>
+            <Layout style={NoteRowMetadataStyle}>
+                <Icon source={() => item().Kind == NoteKind.Link ? Lucent.Icons.Lucide.LucideIcons.Link : Lucent.Icons.Lucide.LucideIcons.FileText} style={NoteRowMetadataIconStyle} />
+                <Text content={() => NotePresentation.RowMetadata(item())} style={NoteRowMetadataTextStyle} />
+            </Layout>
         </Selectable>
     </ContextMenu>
 }

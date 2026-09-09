@@ -13,6 +13,7 @@ public sealed partial class ShellPresentationTests
         fixture.Pump(model.StartAsync());
 
         using var composition = new Composition(fixture.Graph, "light-notes-scrollbar-review");
+        composition.ConfigureImages(new ImageCache(new SkiaImagePreparer()));
         using var theme = new ThemeContext(composition.Root.Scope, LightNotesTheme.Create());
         composition.Mount(composition.Root, theme, global::LightNotes.Components.AppView(model));
         using var renderer = new SkiaSceneRenderer();

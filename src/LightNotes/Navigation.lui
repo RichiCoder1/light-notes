@@ -20,16 +20,33 @@ style NavigationStyle(WindowBreakpoints breakpoints) {
 }
 
 style NavigationBrandStyle(WindowBreakpoints breakpoints) {
-    FontWeight: FontWeight.SemiBold;
-    FontSize: 17;
+    Axis: LayoutAxis.Row;
+    CrossAlignment: LayoutAlignment.Center;
+    Spacing: 8;
+    MainShrink: 0;
+    MinWidth: 0;
     TextColor: LightNotesTheme.InverseInk;
     Height: 34;
-    MaxLines: 1;
-    Overflow: TextOverflow.Ellipsis;
 
     when (!breakpoints.IsActive(LightNotesBreakpoints.Wide)) {
         Participation: ElementParticipation.Collapsed;
     }
+}
+
+style NavigationBrandIconStyle {
+    Width: 18;
+    Height: 18;
+    MainShrink: 0;
+}
+
+style NavigationBrandTextStyle {
+    FontWeight: FontWeight.SemiBold;
+    FontSize: 17;
+    TextColor: LightNotesTheme.InverseInk;
+    MainGrow: 1;
+    MinWidth: 0;
+    MaxLines: 1;
+    Overflow: TextOverflow.Ellipsis;
 }
 
 style NavigationItemStyle(WindowBreakpoints breakpoints) {
@@ -44,7 +61,8 @@ style NavigationItemStyle(WindowBreakpoints breakpoints) {
     MaxLines: 2;
     Overflow: TextOverflow.Ellipsis;
     when (!breakpoints.IsActive(LightNotesBreakpoints.Wide)) {
-        Padding: Insets.Symmetric(8, 8);
+        Height: 60;
+        Padding: Insets.Symmetric(8, 4);
     }
     when Selected {
         Background: LightNotesTheme.NavigationSelected;
@@ -84,11 +102,64 @@ style NavigationHintStyle(WindowBreakpoints breakpoints) {
     }
 }
 
+style NavigationItemContentStyle(WindowBreakpoints breakpoints) {
+    Axis: LayoutAxis.Row;
+    CrossAlignment: LayoutAlignment.Center;
+    MainGrow: 1;
+    MinWidth: 0;
+    Spacing: 8;
+
+    when (!breakpoints.IsActive(LightNotesBreakpoints.Wide)) {
+        Axis: LayoutAxis.Column;
+        CrossAlignment: LayoutAlignment.Center;
+        MainAlignment: LayoutAlignment.Center;
+        Spacing: 2;
+    }
+}
+
+style NavigationItemIconStyle {
+    Width: 17;
+    Height: 17;
+    MainShrink: 0;
+}
+
+style NavigationItemTextStyle(WindowBreakpoints breakpoints) {
+    FontWeight: FontWeight.Medium;
+    FontSize: 13;
+    TextColor: LightNotesTheme.InverseInk;
+    MainGrow: 1;
+    MinWidth: 0;
+    TextWrap: TextWrap.WordWithGraphemeFallback;
+    MaxLines: 2;
+    Overflow: TextOverflow.Ellipsis;
+
+    when (!breakpoints.IsActive(LightNotesBreakpoints.Wide)) {
+        FontSize: 10;
+        MainGrow: 0;
+        TextWrap: TextWrap.WordWithGraphemeFallback;
+        MaxLines: 2;
+        Overflow: TextOverflow.Ellipsis;
+    }
+}
+
 public component Navigation(NoteWorkspace model) {
     <Layout style={NavigationStyle(model.Breakpoints)} name="notes.navigation">
-        <Text style={NavigationBrandStyle(model.Breakpoints)}>Light Notes</Text>
-        <Selectable content={() => model.Breakpoints.IsActive(LightNotesBreakpoints.Wide) ? "Inbox  " + model.InboxCount : "Inbox"} selected={() => !model.ShowArchived.Value} onSelect={() => model.ShowInbox()} style={NavigationItemStyle(model.Breakpoints)} name="notes.navigation-inbox" />
-        <Selectable content={() => model.Breakpoints.IsActive(LightNotesBreakpoints.Wide) ? "Archive  " + model.ArchiveCount : "Archive"} selected={() => model.ShowArchived.Value} onSelect={() => model.ShowArchive()} style={NavigationItemStyle(model.Breakpoints)} name="notes.navigation-archive" />
+        <Layout style={NavigationBrandStyle(model.Breakpoints)} name="notes.navigation-brand">
+            <Icon source={Lucent.Icons.Lucide.LucideIcons.NotebookPen} style={NavigationBrandIconStyle} />
+            <Text style={NavigationBrandTextStyle}>Light Notes</Text>
+        </Layout>
+        <Selectable label={() => model.Breakpoints.IsActive(LightNotesBreakpoints.Wide) ? "Inbox  " + model.InboxCount : "Inbox"} selected={() => !model.ShowArchived.Value} onSelect={() => model.ShowInbox()} style={NavigationItemStyle(model.Breakpoints)} name="notes.navigation-inbox">
+            <Layout style={NavigationItemContentStyle(model.Breakpoints)}>
+                <Icon source={Lucent.Icons.Lucide.LucideIcons.Inbox} style={NavigationItemIconStyle} />
+                <Text content={() => model.Breakpoints.IsActive(LightNotesBreakpoints.Wide) ? "Inbox  " + model.InboxCount : "Inbox"} style={NavigationItemTextStyle(model.Breakpoints)} />
+            </Layout>
+        </Selectable>
+        <Selectable label={() => model.Breakpoints.IsActive(LightNotesBreakpoints.Wide) ? "Archive  " + model.ArchiveCount : "Archive"} selected={() => model.ShowArchived.Value} onSelect={() => model.ShowArchive()} style={NavigationItemStyle(model.Breakpoints)} name="notes.navigation-archive">
+            <Layout style={NavigationItemContentStyle(model.Breakpoints)}>
+                <Icon source={Lucent.Icons.Lucide.LucideIcons.Archive} style={NavigationItemIconStyle} />
+                <Text content={() => model.Breakpoints.IsActive(LightNotesBreakpoints.Wide) ? "Archive  " + model.ArchiveCount : "Archive"} style={NavigationItemTextStyle(model.Breakpoints)} />
+            </Layout>
+        </Selectable>
         <Layout style={NavigationSpacerStyle} />
         <Text style={NavigationHintStyle(model.Breakpoints)}>Ctrl+N to capture</Text>
     </Layout>

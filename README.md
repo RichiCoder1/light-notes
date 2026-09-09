@@ -34,6 +34,8 @@ dotnet restore ./tools/LightNotes.Review/LightNotes.Review.csproj --force-evalua
 
 Together these commands refresh the six maintained lock files under `src/LightNotes`, `src/LightNotes.Storage`, `tests/LightNotes.Tests`, `tests/LightNotes.Storage.Tests`, `tests/LightNotes.Desktop.Tests`, and `tools/LightNotes.Review`. Review all six and commit both pins with every changed lock file. `-UpdateLock` temporarily uses a fresh NuGet HTTP cache so the SDK resolver sees a newly published SDK version; normal builds retain the usual cache. Vendored Lucent fixtures are not part of the Light Notes package upgrade.
 
+The app references the optional `Lucent.Icons.Lucide` package and its typed artwork accessors. The pinned `0.3.0-dev.51.1` package set contains that package; the generated application icon, published notices, managed suites, and NativeAOT publish are covered by the package validation checks below.
+
 For framework work, pack a unique local version using Lucent's [package instructions](https://github.com/RichiCoder1/lucent/blob/2bd1c7fb851f222aa4294c7144856993b9d6fa27/docs/PACKAGES.md), point the `lucent` source in NuGet.config at that local folder, and update both pins. Restore needs no prebuilt Lucent checkout DLLs or hidden Debug outputs. Keep local feed paths out of commits.
 
 Open the repository root in VS Code; the checked-in settings select `LightNotes.slnx`, containing the app and managed tests. This keeps vendored Lucent package-test fixtures out of automatic project discovery. Desktop tests remain opt-in through their explicit project. VS Code also needs NuGet feed credentials available outside Build.ps1; configure the `lucent` source in your user-level NuGet.Config with Windows-encrypted credentials, then reload the window.
@@ -63,6 +65,23 @@ Use new destination filenames for export/backup and a new directory for restorat
 ## Tests
 
 Run `./tools/Test.ps1` for temporary-database, workspace and real `.lui` shell geometry/state contracts. After changing package dependencies, use `-UpdateLock` once, then commit the lock files. `./tools/Build.ps1 -Publish` produces the NativeAOT application. Published desktop interaction tests run separately in an interactive Windows session.
+
+### Opt-in Notes projection characterization
+
+After the pinned Lucent package is available, the maintained Notes projection probe can characterize the synthetic shell without opening a window. It reports warmup and sample counts, elapsed time, per-thread allocations, retained box/list-row counts, and scene-ownership retries for unchanged, same-bucket, and breakpoint-crossing widths. It has no timing gate and is intentionally opt-in:
+
+```powershell
+$env:LIGHT_NOTES_PROJECTION_PROBE = '1'
+$env:LIGHT_NOTES_SOURCE_COMMIT = (git rev-parse HEAD)
+$dirtyPatch = git diff --binary --no-ext-diff | Out-String
+$env:LIGHT_NOTES_SOURCE_DIRTY_HASH = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($dirtyPatch)))
+$env:LIGHT_NOTES_ARTWORK_HASH = (Get-FileHash ./src/LightNotes/Artwork/light-notes.svg -Algorithm SHA256).Hash
+$env:LIGHT_NOTES_PROBE_HASH = (Get-FileHash ./tests/LightNotes.Tests/NotesProjectionProbeTests.cs -Algorithm SHA256).Hash
+$env:LIGHT_NOTES_PROJECTION_ARTIFACTS = Join-Path (Get-Location) 'artifacts/projection'
+dotnet test --project ./tests/LightNotes.Tests/LightNotes.Tests.csproj -c Release --filter FullyQualifiedName~OptInNotesProjectionProbe
+```
+
+Run it twice for package characterization and retain the emitted `notes-projection.json` with the source commit, package assembly versions, machine, runtime, and configuration. These are after-only measurements; this probe does not invent a pre-icon baseline.
 
 ### Optional published desktop test
 

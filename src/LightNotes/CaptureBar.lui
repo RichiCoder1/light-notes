@@ -62,6 +62,6 @@ style PrimaryActionStyle {
 public component CaptureBar(NoteWorkspace model) {
     <Layout style={CaptureBarStyle(model.Breakpoints)} name="notes.capture-bar">
         <TextField session={model.Capture} focusTarget={model.CaptureFocus} label="Capture a link or thought" style={CaptureFieldStyle with { Enabled: model.CanEdit; }} name="notes.capture" />
-        <Button onInvoke={() => model.CaptureCommand.TryExecute()} style={PrimaryActionStyle with { Enabled: model.CaptureCommand.IsEnabled; }} name="notes.capture-action">Add</Button>
+        <Button leadingIcon={Lucent.Icons.Lucide.LucideIcons.Plus} onInvoke={() => model.CaptureCommand.TryExecute()} style={PrimaryActionStyle with { Enabled: model.CaptureCommand.IsEnabled; }} name="notes.capture-action">Add</Button>
     </Layout>
 }

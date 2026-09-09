@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Security.Cryptography;
 using LightNotes.ReviewFixtures;
 using Lucent.Core;
 using Lucent.Renderer.Skia;
@@ -17,6 +18,7 @@ public sealed partial class ShellPresentationTests
         fixture.Pump(model.StartAsync());
 
         using var composition = new Composition(fixture.Graph, "light-notes-route-review");
+        composition.ConfigureImages(new ImageCache(new SkiaImagePreparer()));
         using var theme = new ThemeContext(composition.Root.Scope, LightNotesTheme.Create());
         composition.Mount(composition.Root, theme, global::LightNotes.Components.AppView(model));
         using var renderer = new SkiaSceneRenderer();
@@ -61,6 +63,204 @@ public sealed partial class ShellPresentationTests
     }
 
     [TestMethod]
+    public void DecorativeGlyphsPrepareWithoutImageSemanticsAndKeepNavigationSelection()
+    {
+        using var fixture = new Fixture();
+        var model = fixture.Model;
+        fixture.Pump(model.StartAsync());
+
+        using var composition = new Composition(fixture.Graph, "light-notes-glyph-semantics");
+        composition.ConfigureImages(new ImageCache(new SkiaImagePreparer()));
+        using var theme = new ThemeContext(composition.Root.Scope, LightNotesTheme.Create());
+        composition.Mount(composition.Root, theme, global::LightNotes.Components.AppView(model));
+        using var renderer = new SkiaSceneRenderer();
+
+        var scene = Scenario(
+            fixture,
+            composition,
+            renderer,
+            model,
+            "glyph-semantics-wide",
+            1180,
+            760,
+            1,
+            export: false
+        );
+        var semantics = Descendants(composition.SemanticSnapshot()).ToArray();
+        Assert.IsFalse(
+            semantics.Any(node => node.Role == SemanticRole.Image),
+            "Decorative Lucide glyphs must not add Image semantics."
+        );
+        Assert.IsTrue(
+            SceneNodes(scene.Nodes).OfType<ImageSceneNode>().Any(),
+            "The composition test must wait for at least one prepared glyph image."
+        );
+        var inbox = SemanticStartingWith(composition, "Inbox", SemanticRole.ListItem);
+        var archive = SemanticStartingWith(composition, "Archive", SemanticRole.ListItem);
+        Assert.IsTrue(inbox.Selected, "Inbox navigation did not start selected.");
+        Assert.IsFalse(archive.Selected, "Archive navigation started selected.");
+        var firstRow = Semantic(
+            composition,
+            NotePresentation.RowLabel(model.VisibleItems[0]),
+            SemanticRole.ListItem
+        );
+        Assert.AreEqual(
+            72f,
+            Bounds(scene, firstRow).Height,
+            0.01f,
+            "The note-kind glyph changed the retained row height."
+        );
+
+        var inboxBounds = Bounds(scene, inbox);
+        var pointer = composition.Input.DispatchPointer(
+            new(
+                PointerCommandKind.Down,
+                901,
+                inboxBounds.X + inboxBounds.Width / 2,
+                inboxBounds.Y + inboxBounds.Height / 2,
+                PointerButton.Primary
+            )
+        );
+        Assert.IsTrue(pointer.Handled, "The composed Inbox navigation item did not receive input.");
+        Assert.AreEqual(
+            inbox.Identity.ElementId,
+            composition.Input.FocusedElement?.ElementId,
+            "A decorative glyph received keyboard focus instead of its selectable navigation item."
+        );
+        composition.Input.DispatchPointer(
+            new(PointerCommandKind.Cancel, 901, inboxBounds.X, inboxBounds.Y)
+        );
+
+        model.ShowArchive();
+        fixture.Drain();
+        _ = Scenario(
+            fixture,
+            composition,
+            renderer,
+            model,
+            "glyph-semantics-archive",
+            1180,
+            760,
+            1,
+            export: false
+        );
+        scene.Dispose();
+        var archiveSemantics = Descendants(composition.SemanticSnapshot()).ToArray();
+        Assert.IsFalse(
+            archiveSemantics.Any(node => node.Role == SemanticRole.Image),
+            "Decorative glyphs must remain absent from the accessibility tree after navigation."
+        );
+        Assert.IsFalse(
+            SemanticStartingWith(composition, "Inbox", SemanticRole.ListItem).Selected,
+            "Inbox remained selected after switching collections."
+        );
+        Assert.IsTrue(
+            SemanticStartingWith(composition, "Archive", SemanticRole.ListItem).Selected,
+            "Archive selection was lost after the ready image frame was installed."
+        );
+        var focusedElement = composition.Input.FocusedElement;
+        Assert.IsTrue(
+            focusedElement is null
+                || archiveSemantics.Any(node =>
+                    node.Identity.ElementId == focusedElement.Value.ElementId
+                ),
+            "Focus points outside the current semantic tree after glyph preparation."
+        );
+    }
+
+    [TestMethod]
+    public void EditorStatusGlyphTracksCleanPendingAndValidationStates()
+    {
+        using var fixture = new Fixture();
+        var model = fixture.Model;
+        fixture.Pump(model.StartAsync());
+
+        using var composition = new Composition(fixture.Graph, "light-notes-status-glyph-review");
+        composition.ConfigureImages(new ImageCache(new SkiaImagePreparer()));
+        using var theme = new ThemeContext(composition.Root.Scope, LightNotesTheme.Create());
+        composition.Mount(composition.Root, theme, global::LightNotes.Components.AppView(model));
+        using var renderer = new SkiaSceneRenderer();
+
+        var selected = model.Selected.Value!;
+        model.Select(selected.Id);
+        fixture.Drain();
+
+        using var cleanScene = Scenario(
+            fixture,
+            composition,
+            renderer,
+            model,
+            "status-clean",
+            1180,
+            760,
+            1,
+            export: false
+        );
+        Assert.IsFalse(model.IsDirty);
+        Assert.IsFalse(model.HasValidationError);
+        Assert.AreEqual("Saved on this device", model.StatusText);
+        var cleanStatus = Semantic(composition, model.StatusText, SemanticRole.Status);
+        var cleanGlyph = ImageFingerprint(cleanScene, StatusGlyph(cleanScene, cleanStatus));
+
+        model.Title.Text = selected.Title + " pending";
+        fixture.Drain();
+        Assert.IsTrue(model.IsDirty);
+        Assert.IsFalse(model.HasValidationError);
+        Assert.AreEqual("Saving changes...", model.StatusText);
+        using var pendingScene = Scenario(
+            fixture,
+            composition,
+            renderer,
+            model,
+            "status-pending",
+            1180,
+            760,
+            1,
+            export: false
+        );
+        var pendingStatus = Semantic(composition, model.StatusText, SemanticRole.Status);
+        var pendingGlyph = ImageFingerprint(pendingScene, StatusGlyph(pendingScene, pendingStatus));
+
+        model.Title.Text = string.Empty;
+        fixture.Drain();
+        Assert.IsTrue(model.IsDirty);
+        Assert.IsTrue(model.HasValidationError);
+        StringAssert.Contains(model.StatusText, "Give this note a title");
+        using var validationScene = Scenario(
+            fixture,
+            composition,
+            renderer,
+            model,
+            "status-validation",
+            1180,
+            760,
+            1,
+            export: false
+        );
+        var validationStatus = Semantic(composition, model.StatusText, SemanticRole.Status);
+        var validationGlyph = ImageFingerprint(
+            validationScene,
+            StatusGlyph(validationScene, validationStatus)
+        );
+
+        Assert.AreNotEqual(
+            cleanGlyph,
+            pendingGlyph,
+            "A pending draft must use a different status glyph from the clean state."
+        );
+        Assert.AreNotEqual(
+            pendingGlyph,
+            validationGlyph,
+            "A validation failure must use a different status glyph from a pending draft."
+        );
+        Assert.AreNotEqual(
+            cleanGlyph,
+            validationGlyph,
+            "A validation failure must use a different status glyph from the clean state."
+        );
+    }
+
+    [TestMethod]
     public void ResponsiveShellRendersRealContentAndRetainsWorkspaceState()
     {
         using var fixture = new Fixture();
@@ -70,6 +270,7 @@ public sealed partial class ShellPresentationTests
         Assert.IsTrue(model.VisibleItems.Count >= 20, "Review records did not load.");
 
         using var composition = new Composition(fixture.Graph, "light-notes-shell-review");
+        composition.ConfigureImages(new ImageCache(new SkiaImagePreparer()));
         var theme = new ThemeContext(composition.Root.Scope, LightNotesTheme.Create());
         composition.Mount(composition.Root, theme, global::LightNotes.Components.AppView(model));
         using var renderer = new SkiaSceneRenderer();
@@ -556,6 +757,7 @@ public sealed partial class ShellPresentationTests
         fixture.Pump(model.StartAsync());
 
         using var composition = new Composition(fixture.Graph, "light-notes-interaction-review");
+        composition.ConfigureImages(new ImageCache(new SkiaImagePreparer()));
         using var theme = new ThemeContext(composition.Root.Scope, LightNotesTheme.Create());
         composition.Mount(composition.Root, theme, global::LightNotes.Components.AppView(model));
         using var renderer = new SkiaSceneRenderer();
@@ -578,6 +780,7 @@ public sealed partial class ShellPresentationTests
             "The enabled Add action lost its accent surface."
         );
         AssertTextCentered(defaultScene, add, "enabled Add action");
+        AssertButtonContentFits(defaultScene, add, "enabled Add action");
 
         model.Title.Text = "Interaction editing title";
         model.Body.Text = "Editing state keeps the retained title and multiline body visible.";
@@ -732,6 +935,7 @@ public sealed partial class ShellPresentationTests
             loadingFixture.Graph,
             "light-notes-search-disabled-review"
         );
+        loadingComposition.ConfigureImages(new ImageCache(new SkiaImagePreparer()));
         using var loadingTheme = new ThemeContext(
             loadingComposition.Root.Scope,
             LightNotesTheme.Create()
@@ -773,6 +977,7 @@ public sealed partial class ShellPresentationTests
         Assert.IsTrue(model.RetryCommand.IsEnabled, "Failed startup did not expose retry.");
 
         using var composition = new Composition(fixture.Graph, "light-notes-error-review");
+        composition.ConfigureImages(new ImageCache(new SkiaImagePreparer()));
         using var theme = new ThemeContext(composition.Root.Scope, LightNotesTheme.Create());
         composition.Mount(composition.Root, theme, global::LightNotes.Components.AppView(model));
         using var renderer = new SkiaSceneRenderer();
@@ -821,22 +1026,38 @@ public sealed partial class ShellPresentationTests
         int width,
         int height,
         float scale,
-        bool export = true
+        bool export = true,
+        int minimumReadyImages = 1
     )
     {
         RetainedScene? scene = null;
         var accepted = false;
-        for (var attempt = 0; attempt < 3; attempt++)
+        var deadline = Environment.TickCount64 + 5_000;
+        while (Environment.TickCount64 < deadline)
         {
             fixture.Drain();
             composition.Flush();
-            scene = SceneLayout.Project(composition, new(width, height, scale), renderer);
-            accepted = composition.Input.SetScene(scene);
-            if (accepted && attempt >= 1)
+            var candidate = SceneLayout.Project(composition, new(width, height, scale), renderer);
+            if (SceneNodes(candidate.Nodes).OfType<ImageSceneNode>().Count() < minimumReadyImages)
+            {
+                candidate.Dispose();
+                Thread.Sleep(1);
+                continue;
+            }
+            accepted = composition.Input.SetScene(candidate);
+            if (accepted)
+            {
+                scene = candidate;
                 break;
+            }
+            candidate.Dispose();
+            Thread.Sleep(1);
         }
-        Assert.IsNotNull(scene);
-        Assert.IsTrue(accepted, $"{name} scene did not settle after bounded focus retries.");
+        Assert.IsNotNull(
+            scene,
+            $"{name} scene did not publish {minimumReadyImages} ready image(s) and settle."
+        );
+        Assert.IsTrue(accepted, $"{name} scene did not settle after bounded retries.");
         using var bitmap = new SKBitmap(
             checked((int)MathF.Ceiling(width * scale)),
             checked((int)MathF.Ceiling(height * scale)),
@@ -901,6 +1122,59 @@ public sealed partial class ShellPresentationTests
             )
             .Bounds;
 
+    private static ImageSceneNode StatusGlyph(RetainedScene scene, SemanticSnapshot status)
+    {
+        var statusBounds = Bounds(scene, status);
+        var candidates = SceneNodes(scene.Nodes)
+            .OfType<ImageSceneNode>()
+            .Where(image =>
+                image.Bounds.Y < statusBounds.Y + statusBounds.Height
+                && image.Bounds.Y + image.Bounds.Height > statusBounds.Y
+            )
+            .OrderBy(image => MathF.Abs(image.Bounds.Y - statusBounds.Y))
+            .ToArray();
+        Assert.IsTrue(
+            candidates.Length > 0,
+            $"No status glyph was painted alongside '{status.Name}'. Bounds={statusBounds}."
+        );
+        return candidates[0];
+    }
+
+    private static string ImageFingerprint(RetainedScene scene, ImageSceneNode image)
+    {
+        using var bitmap = new SKBitmap(1180, 760, SKColorType.Rgba8888, SKAlphaType.Premul);
+        using (var canvas = new SKCanvas(bitmap))
+        using (var renderer = new SkiaSceneRenderer())
+        {
+            canvas.Clear(SKColors.Transparent);
+            renderer.Render(scene, canvas);
+        }
+
+        var bounds = image.Bounds;
+        var left = Math.Clamp((int)MathF.Floor(bounds.X), 0, bitmap.Width - 1);
+        var top = Math.Clamp((int)MathF.Floor(bounds.Y), 0, bitmap.Height - 1);
+        var right = Math.Clamp((int)MathF.Ceiling(bounds.X + bounds.Width), left + 1, bitmap.Width);
+        var bottom = Math.Clamp(
+            (int)MathF.Ceiling(bounds.Y + bounds.Height),
+            top + 1,
+            bitmap.Height
+        );
+        var pixels = new byte[checked((right - left) * (bottom - top) * 4)];
+        var offset = 0;
+        for (var y = top; y < bottom; y++)
+        {
+            for (var x = left; x < right; x++)
+            {
+                var pixel = bitmap.GetPixel(x, y);
+                pixels[offset++] = pixel.Red;
+                pixels[offset++] = pixel.Green;
+                pixels[offset++] = pixel.Blue;
+                pixels[offset++] = pixel.Alpha;
+            }
+        }
+        return Convert.ToHexString(SHA256.HashData(pixels));
+    }
+
     private static Color BackgroundColor(RetainedScene scene, SemanticSnapshot element)
     {
         var identity = new ElementIdentity(
@@ -922,26 +1196,89 @@ public sealed partial class ShellPresentationTests
         string message
     )
     {
-        var identity = new ElementIdentity(
-            element.Identity.CompositionEpoch,
-            element.Identity.ElementId
-        );
-        var text = SceneNodes(scene.Nodes)
-            .OfType<TextSceneNode>()
-            .Single(node =>
-                node.Identity.Element == identity && node.Identity.Kind == SceneNodeKind.Text
-            );
+        var text = ButtonText(scene, element);
         var left = text.Text.Runs.Min(run => run.OriginX + run.Glyphs.Min(glyph => glyph.X));
         var right = text.Text.Runs.Max(run =>
             run.OriginX + run.Glyphs.Max(glyph => glyph.X + glyph.XAdvance)
         );
-        var paintedCenter = text.Bounds.X + (left + right) / 2;
         var box = Bounds(scene, element);
+        var paintedLeft = text.Bounds.X + left;
+        var paintedRight = text.Bounds.X + right;
+        var glyphs = ButtonGlyphs(scene, box);
+        var contentLeft =
+            glyphs.Length == 0
+                ? paintedLeft
+                : MathF.Min(paintedLeft, glyphs.Min(glyph => glyph.Bounds.X));
+        var contentRight =
+            glyphs.Length == 0
+                ? paintedRight
+                : MathF.Max(paintedRight, glyphs.Max(glyph => glyph.Bounds.X + glyph.Bounds.Width));
         Assert.AreEqual(
             box.X + box.Width / 2,
-            paintedCenter,
+            (contentLeft + contentRight) / 2,
             1.25f,
-            $"{message} text was not optically centered."
+            $"{message} content was not optically centered."
+        );
+    }
+
+    private static void AssertButtonContentFits(
+        RetainedScene scene,
+        SemanticSnapshot element,
+        string message
+    )
+    {
+        var box = Bounds(scene, element);
+        var text = ButtonText(scene, element);
+        var left = text.Text.Runs.Min(run => run.OriginX + run.Glyphs.Min(glyph => glyph.X));
+        var right = text.Text.Runs.Max(run =>
+            run.OriginX + run.Glyphs.Max(glyph => glyph.X + glyph.XAdvance)
+        );
+        var paintedLeft = text.Bounds.X + left;
+        var paintedRight = text.Bounds.X + right;
+        const float tolerance = 1.25f;
+        Assert.IsTrue(
+            paintedLeft >= box.X - tolerance && paintedRight <= box.X + box.Width + tolerance,
+            $"{message} text is clipped by its button box."
+        );
+
+        var glyphs = ButtonGlyphs(scene, box);
+        Assert.IsTrue(glyphs.Length > 0, $"{message} leading glyph was not prepared.");
+    }
+
+    private static ImageSceneNode[] ButtonGlyphs(RetainedScene scene, LayoutRect box)
+    {
+        const float tolerance = 1.25f;
+        return SceneNodes(scene.Nodes)
+            .OfType<ImageSceneNode>()
+            .Where(image =>
+                image.Bounds.X >= box.X - tolerance
+                && image.Bounds.Y >= box.Y - tolerance
+                && image.Bounds.X + image.Bounds.Width <= box.X + box.Width + tolerance
+                && image.Bounds.Y + image.Bounds.Height <= box.Y + box.Height + tolerance
+            )
+            .ToArray();
+    }
+
+    private static TextSceneNode ButtonText(RetainedScene scene, SemanticSnapshot element)
+    {
+        var identity = new ElementIdentity(
+            element.Identity.CompositionEpoch,
+            element.Identity.ElementId
+        );
+        var textNodes = SceneNodes(scene.Nodes).OfType<TextSceneNode>().ToArray();
+        var direct = textNodes.SingleOrDefault(node =>
+            node.Identity.Element == identity && node.Identity.Kind == SceneNodeKind.Text
+        );
+        if (direct is not null)
+            return direct;
+
+        var box = Bounds(scene, element);
+        const float tolerance = 1.25f;
+        return textNodes.Single(node =>
+            node.Bounds.X >= box.X - tolerance
+            && node.Bounds.Y >= box.Y - tolerance
+            && node.Bounds.X + node.Bounds.Width <= box.X + box.Width + tolerance
+            && node.Bounds.Y + node.Bounds.Height <= box.Y + box.Height + tolerance
         );
     }
 
@@ -951,15 +1288,7 @@ public sealed partial class ShellPresentationTests
         string message
     )
     {
-        var identity = new ElementIdentity(
-            element.Identity.CompositionEpoch,
-            element.Identity.ElementId
-        );
-        var text = SceneNodes(scene.Nodes)
-            .OfType<TextSceneNode>()
-            .Single(node =>
-                node.Identity.Element == identity && node.Identity.Kind == SceneNodeKind.Text
-            );
+        var text = ButtonText(scene, element);
         Assert.IsTrue(text.Text.Height <= 20, $"{message} wrapped or became too tall.");
     }
 
