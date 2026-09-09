@@ -1,7 +1,7 @@
 {
   "sdk": {
     "version": "10.0.400",
-    "rollForward": "latestPatch"
+    "rollForward": "disable"
   },
   "msbuild-sdks": {
     "Lucent.Lui.Sdk": "0.3.0-dev.53.1",

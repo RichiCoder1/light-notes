@@ -6,7 +6,7 @@ Capture a link or thought, edit its title, URL and note, and let autosave persis
 
 ## Run locally
 
-Requirements: Windows 11 24H2 or later, x64, PowerShell 7, Git/GitHub CLI, and the .NET SDK 10.0.400 feature band with its latest servicing patch. The checked-in `global.json` uses `rollForward: latestPatch`; it does not float to another feature band. NativeAOT publishing additionally needs Visual Studio 2022 or later with Desktop development with C++ and a Windows SDK supporting 10.0.26100.0.
+Requirements: Windows 11 24H2 or later, x64, PowerShell 7, Git/GitHub CLI, and .NET SDK 10.0.400. The checked-in `global.json` disables SDK roll-forward because servicing releases change implicit NativeAOT and trimming package dependencies; update the SDK pin and all lock files together. NativeAOT publishing additionally needs Visual Studio 2022 or later with Desktop development with C++ and a Windows SDK supporting 10.0.26100.0.
 
 ```powershell
 git clone https://github.com/RichiCoder1/light-notes.git
