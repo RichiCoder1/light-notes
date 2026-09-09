@@ -19,6 +19,7 @@ try {
     }
     Push-Location $root
     try {
+        & (Join-Path $PSScriptRoot 'Assert-SdkPins.ps1') -Root $root
         $project = 'src/LightNotes/LightNotes.csproj'
         $restoreArguments = @('restore', $project)
         if ($UpdateLock) { $restoreArguments += '--force-evaluate' } else { $restoreArguments += '--locked-mode' }

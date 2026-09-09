@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Security.Cryptography;
 using LightNotes.ReviewFixtures;
+using LightNotes.Storage;
 using Lucent.Core;
 using Lucent.Renderer.Skia;
 using SkiaSharp;
@@ -60,6 +61,116 @@ public sealed partial class ShellPresentationTests
         fixture.Drain();
         Assert.AreEqual(NoteWorkspaceRoute.Collection, model.Route.Value);
         Assert.IsTrue(model.ShowCollection && !model.ShowEditor);
+    }
+
+    [TestMethod]
+    public void CaptureEnterAndCompactEscapeUseTheExistingCommandScopes()
+    {
+        using var fixture = new Fixture();
+        var model = fixture.Model;
+        fixture.Pump(model.StartAsync());
+
+        using var composition = new Composition(fixture.Graph, "light-notes-keyboard-routes");
+        composition.ConfigureImages(new ImageCache(new SkiaImagePreparer()));
+        using var theme = new ThemeContext(composition.Root.Scope, LightNotesTheme.Create());
+        composition.Mount(composition.Root, theme, global::LightNotes.Components.AppView(model));
+        using var renderer = new SkiaSceneRenderer();
+
+        using var wide = Scenario(
+            fixture,
+            composition,
+            renderer,
+            model,
+            "keyboard-routes-wide",
+            1180,
+            760,
+            1,
+            export: false
+        );
+        model.Capture.Text = "Captured with Enter";
+        fixture.Drain();
+        using var captureReady = Scenario(
+            fixture,
+            composition,
+            renderer,
+            model,
+            "keyboard-routes-capture-ready",
+            1180,
+            760,
+            1,
+            export: false
+        );
+        var capture = Semantic(composition, "Capture a link or thought", SemanticRole.TextField);
+        Assert.IsTrue(
+            composition.Input.FocusSemantic(
+                new ElementIdentity(capture.Identity.CompositionEpoch, capture.Identity.ElementId)
+            ),
+            "The capture field could not receive focus before the Enter test."
+        );
+        using var focused = Scenario(
+            fixture,
+            composition,
+            renderer,
+            model,
+            "keyboard-routes-focused",
+            1180,
+            760,
+            1,
+            export: false
+        );
+
+        Assert.IsTrue(
+            composition
+                .Input.DispatchKey(new(KeyCommandKind.Down, Key.Enter, KeyModifiers.None))
+                .Handled,
+            "Enter was not consumed by the capture command scope."
+        );
+        fixture.Until(() =>
+            model.ShowEditor && model.Selected.Value?.Title == "Captured with Enter"
+        );
+
+        using var wideEditor = Scenario(
+            fixture,
+            composition,
+            renderer,
+            model,
+            "keyboard-routes-wide-editor",
+            1180,
+            760,
+            1,
+            export: false
+        );
+        Assert.IsTrue(
+            composition
+                .Input.DispatchKey(new(KeyCommandKind.Down, Key.Escape, KeyModifiers.None))
+                .Handled,
+            "The editor command scope did not consume Escape at the wide breakpoint."
+        );
+        fixture.Drain();
+        Assert.IsTrue(model.ShowEditor, "Escape changed the wide editor route unexpectedly.");
+
+        using var compact = Scenario(
+            fixture,
+            composition,
+            renderer,
+            model,
+            "keyboard-routes-compact",
+            560,
+            760,
+            1,
+            export: false
+        );
+        Assert.IsTrue(
+            model.ShowEditor,
+            "Capture Enter did not leave the new note in the editor route."
+        );
+        Assert.IsTrue(
+            composition
+                .Input.DispatchKey(new(KeyCommandKind.Down, Key.Escape, KeyModifiers.None))
+                .Handled,
+            "Escape was not consumed by the editor back command."
+        );
+        fixture.Until(() => model.ShowCollection && !model.ShowEditor);
     }
 
     [TestMethod]
@@ -196,6 +307,7 @@ public sealed partial class ShellPresentationTests
             1,
             export: false
         );
+        var readyImageCount = SceneNodes(cleanScene.Nodes).OfType<ImageSceneNode>().Count();
         Assert.IsFalse(model.IsDirty);
         Assert.IsFalse(model.HasValidationError);
         Assert.AreEqual("Saved on this device", model.StatusText);
@@ -216,7 +328,8 @@ public sealed partial class ShellPresentationTests
             1180,
             760,
             1,
-            export: false
+            export: false,
+            minimumReadyImages: readyImageCount
         );
         var pendingStatus = Semantic(composition, model.StatusText, SemanticRole.Status);
         var pendingGlyph = ImageFingerprint(pendingScene, StatusGlyph(pendingScene, pendingStatus));
@@ -235,7 +348,8 @@ public sealed partial class ShellPresentationTests
             1180,
             760,
             1,
-            export: false
+            export: false,
+            minimumReadyImages: readyImageCount
         );
         var validationStatus = Semantic(composition, model.StatusText, SemanticRole.Status);
         var validationGlyph = ImageFingerprint(
@@ -1017,6 +1131,46 @@ public sealed partial class ShellPresentationTests
         );
     }
 
+    [TestMethod]
+    public void ReadyEmptyCollectionShowsCaptureFailureRecovery()
+    {
+        const string errorMessage = "The local notes store rejected the captured note.";
+        using var fixture = new Fixture(
+            storage: new CaptureFailureStorage(new IOException(errorMessage))
+        );
+        var model = fixture.Model;
+        fixture.Pump(model.StartAsync());
+        Assert.IsTrue(model.IsReady);
+        Assert.IsNull(model.Selected.Value);
+
+        model.Capture.Text = "A capture that fails";
+        Assert.IsTrue(model.CaptureCommand.TryExecute());
+        fixture.Until(() => !model.IsBusy && model.HasError);
+
+        using var composition = new Composition(fixture.Graph, "light-notes-empty-capture-error");
+        composition.ConfigureImages(new ImageCache(new SkiaImagePreparer()));
+        using var theme = new ThemeContext(composition.Root.Scope, LightNotesTheme.Create());
+        composition.Mount(composition.Root, theme, global::LightNotes.Components.AppView(model));
+        using var renderer = new SkiaSceneRenderer();
+        var scene = Scenario(
+            fixture,
+            composition,
+            renderer,
+            model,
+            "ready-empty-capture-error",
+            560,
+            760,
+            1,
+            export: false
+        );
+
+        var heading = Semantic(composition, "Could not save", SemanticRole.Text);
+        var detail = Semantic(composition, errorMessage, SemanticRole.Text);
+        var retry = Semantic(composition, "Retry", SemanticRole.Button);
+        AssertInsideViewport(scene, 560, 760, heading, detail, retry);
+        Assert.IsTrue(model.RetryCommand.IsEnabled);
+    }
+
     private static RetainedScene Scenario(
         Fixture fixture,
         Composition composition,
@@ -1438,20 +1592,30 @@ public sealed partial class ShellPresentationTests
             "light-notes-shell-" + Guid.NewGuid().ToString("N")
         );
 
-        internal Fixture(Exception? startupFailure = null)
+        internal Fixture(Exception? startupFailure = null, INoteWorkspaceStorage? storage = null)
         {
             Directory.CreateDirectory(_directory);
-            ReviewSamples.SeedAsync(DatabasePath).GetAwaiter().GetResult();
+            if (storage is null)
+                ReviewSamples.SeedAsync(DatabasePath).GetAwaiter().GetResult();
             SetSynchronizationContext(this);
             Graph = new ReactiveGraph();
             Scope = Graph.CreateScope("shell-review-model");
-            Model = startupFailure is null
-                ? new NoteWorkspace(
-                    Scope,
-                    DatabasePath,
-                    new NoExternalLinks(),
-                    new PausedDebounce()
-                )
+            Model =
+                storage is not null
+                    ? new NoteWorkspace(
+                        Scope,
+                        DatabasePath,
+                        new NoExternalLinks(),
+                        new PausedDebounce(),
+                        _ => Task.FromResult(storage)
+                    )
+                : startupFailure is null
+                    ? new NoteWorkspace(
+                        Scope,
+                        DatabasePath,
+                        new NoExternalLinks(),
+                        new PausedDebounce()
+                    )
                 : new NoteWorkspace(
                     Scope,
                     DatabasePath,
@@ -1520,5 +1684,31 @@ public sealed partial class ShellPresentationTests
                 );
             Directory.Delete(full, true);
         }
+    }
+
+    private sealed class CaptureFailureStorage(Exception failure) : INoteWorkspaceStorage
+    {
+        public bool HasUnresolvedWriteFailures => false;
+
+        public Task<NoteRecord> SaveAsync(NoteDraft draft) =>
+            Task.FromException<NoteRecord>(failure);
+
+        public Task<NoteRecord?> GetAsync(Guid id) => Task.FromResult<NoteRecord?>(null);
+
+        public Task<IReadOnlyList<NoteRecord>> ListAsync(bool includeArchived) =>
+            Task.FromResult<IReadOnlyList<NoteRecord>>([]);
+
+        public Task<NoteRecord> ArchiveAsync(Guid id, bool archived) =>
+            throw new NotSupportedException();
+
+        public Task<WriteRetryResult> RetryFailedWritesAsync() =>
+            Task.FromResult(new WriteRetryResult(0, 0, 0));
+
+        public Task BackupAsync(string destinationPath) => throw new NotSupportedException();
+
+        public Task<bool> PrepareCloseAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult(true);
+
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }
 }

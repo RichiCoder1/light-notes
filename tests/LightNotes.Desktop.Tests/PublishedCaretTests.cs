@@ -10,6 +10,27 @@ namespace LightNotes.Desktop.Tests;
 
 public sealed partial class PublishedPersistenceTests
 {
+    private static readonly nint PerMonitorV2DpiAwareness = (nint)(-4);
+    private nint _priorDpiAwareness;
+
+    [TestInitialize]
+    public void UsePhysicalDesktopCoordinates()
+    {
+        _priorDpiAwareness = SetThreadDpiAwarenessContext(PerMonitorV2DpiAwareness);
+        Assert.AreNotEqual(
+            nint.Zero,
+            _priorDpiAwareness,
+            "The desktop test thread could not enter per-monitor-v2 DPI awareness."
+        );
+    }
+
+    [TestCleanup]
+    public void RestoreDesktopCoordinateContext()
+    {
+        if (_priorDpiAwareness != nint.Zero)
+            _ = SetThreadDpiAwarenessContext(_priorDpiAwareness);
+    }
+
     [TestMethod]
     public void PublishedEditorChangesNativeCursorAndBlinksWithoutInput()
     {
@@ -98,11 +119,11 @@ public sealed partial class PublishedPersistenceTests
                     using var capture = Capture.Rectangle(rectangle);
                     ulong signature = 14695981039346656037;
                     for (var y = 0; y < capture.Bitmap.Height; y++)
-                    for (var x = 0; x < capture.Bitmap.Width; x++)
-                        signature = unchecked(
-                            (signature ^ (uint)capture.Bitmap.GetPixel(x, y).ToArgb())
-                            * 1099511628211
-                        );
+                        for (var x = 0; x < capture.Bitmap.Width; x++)
+                            signature = unchecked(
+                                (signature ^ (uint)capture.Bitmap.GetPixel(x, y).ToArgb())
+                                * 1099511628211
+                            );
                     if (signatures.Add(signature))
                         capture.ToFile(Path.Combine(output, $"caret-phase-{signatures.Count}.png"));
                     Thread.Sleep(100);
@@ -162,6 +183,9 @@ public sealed partial class PublishedPersistenceTests
 
     [LibraryImport("user32.dll")]
     private static partial uint GetCaretBlinkTime();
+
+    [LibraryImport("user32.dll")]
+    private static partial nint SetThreadDpiAwarenessContext(nint context);
 
     [LibraryImport("user32.dll")]
     private static partial nint GetForegroundWindow();

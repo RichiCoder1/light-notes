@@ -19,6 +19,7 @@ try {
     }
     Push-Location $root
     try {
+        & (Join-Path $PSScriptRoot 'Assert-SdkPins.ps1') -Root $root
         foreach ($project in @('tests/LightNotes.Storage.Tests/LightNotes.Storage.Tests.csproj', 'tests/LightNotes.Tests/LightNotes.Tests.csproj')) {
             $restoreMode = if ($UpdateLock) { '--force-evaluate' } else { '--locked-mode' }
             & dotnet restore $project $restoreMode

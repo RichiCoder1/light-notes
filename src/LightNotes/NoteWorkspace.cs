@@ -16,7 +16,7 @@ public sealed class NoteWorkspace : IAsyncDisposable
     private Task _refreshTask = Task.CompletedTask;
     private Func<Task>? _retry;
     private Guid? _captureId;
-    private bool _closing;
+    private readonly Signal<bool> _closing;
     private OwnedDraftContent? _observedDraft;
     private Exception? _saveFailure;
     private NoteDraftWriter? _draftWriter;
@@ -43,7 +43,8 @@ public sealed class NoteWorkspace : IAsyncDisposable
             linkOpener,
             autosave,
             async path => new NoteWorkspaceStorage(await NoteStore.OpenAsync(path))
-        ) { }
+        )
+    { }
 
     internal NoteWorkspace(
         ReactiveScope owner,
@@ -77,6 +78,7 @@ public sealed class NoteWorkspace : IAsyncDisposable
         _ready = owner.Signal(false, "storage-ready");
         _busy = owner.Signal(false, "workspace-busy");
         _saving = owner.Signal(false, "workspace-saving");
+        _closing = owner.Signal(false, "workspace-closing");
         _error = owner.Signal<string?>(null, "save-error");
         _errorHeading = owner.Signal("Could not save", "error-heading");
         _status = owner.Signal("Opening your notes...", "save-status");
@@ -150,10 +152,27 @@ public sealed class NoteWorkspace : IAsyncDisposable
             () => CanEdit,
             "focus-search"
         );
+        BackToCollectionCommand = new(
+            owner,
+            _ =>
+            {
+                BackToCollection();
+                return Task.CompletedTask;
+            },
+            () =>
+                CanEdit
+                && ShowEditor
+                && !Breakpoints.IsActive(LightNotesBreakpoints.Medium),
+            "back-to-collection"
+        );
+        CaptureBindings = new([
+            new(CaptureCommand, new(Key.Enter, KeyModifiers.None)),
+        ]);
         Bindings = new([
             new(FocusCaptureCommand, KeyChord.Ctrl(Key.N)),
             new(FocusSearchCommand, KeyChord.Ctrl(Key.F)),
             new(SaveCommand, KeyChord.Ctrl(Key.S)),
+            new(BackToCollectionCommand, new(Key.Escape, KeyModifiers.None)),
         ]);
     }
 
@@ -167,6 +186,8 @@ public sealed class NoteWorkspace : IAsyncDisposable
     public FocusTarget TitleFocus { get; }
     public ApplicationCommand FocusCaptureCommand { get; }
     public ApplicationCommand FocusSearchCommand { get; }
+    public ApplicationCommand BackToCollectionCommand { get; }
+    public CommandBindings CaptureBindings { get; }
     public WindowBreakpoints Breakpoints { get; }
     public ViewportState CollectionViewport { get; }
     public Signal<IReadOnlyList<NoteRecord>> Items { get; }
@@ -188,8 +209,8 @@ public sealed class NoteWorkspace : IAsyncDisposable
     public bool IsReady => _ready.Value;
     public bool IsBusy => _busy.Value;
     public bool IsSaving => _saving.Value;
-    public bool CanEdit => IsReady && !IsBusy && !_closing;
-    public bool CanSearch => IsReady && !_closing;
+    public bool CanEdit => IsReady && !IsBusy && !_closing.Value;
+    public bool CanSearch => IsReady && !_closing.Value;
     public bool CanOpenLink => TryGetSelectedWebUri(out _);
     public bool HasRecoveryDraft
     {
@@ -215,6 +236,7 @@ public sealed class NoteWorkspace : IAsyncDisposable
     {
         get
         {
+            _ = _draftStateVersion.Value;
             var selected = Selected.Value;
             var title = Title.Text;
             var url = Url.Text;
@@ -362,13 +384,8 @@ public sealed class NoteWorkspace : IAsyncDisposable
 
     private void SwitchCollection(bool archived)
     {
-        RememberCollectionState();
         var preservation = PersistCurrentForNavigationAsync();
-        ShowArchived.Value = archived;
-        var next = CollectionState(archived);
-        Search.Text = next.Query;
-        CollectionViewport.Offset = next.Offset;
-        ApplyFilter();
+        var next = SetCollectionState(archived);
         var selected = next.SelectedId is { } remembered
             ? _allItems.Value.FirstOrDefault(item =>
                 item.Id == remembered && item.IsArchived == archived
@@ -379,6 +396,17 @@ public sealed class NoteWorkspace : IAsyncDisposable
         SelectRecord(selected);
         BackToCollection();
         _refreshTask = CompleteCollectionSwitchAsync(_refreshTask, preservation);
+    }
+
+    private CollectionMemory SetCollectionState(bool archived)
+    {
+        RememberCollectionState();
+        ShowArchived.Value = archived;
+        var next = CollectionState(archived);
+        Search.Text = next.Query;
+        CollectionViewport.Offset = next.Offset;
+        ApplyFilter();
+        return next;
     }
 
     private async Task SetCollectionAsync(bool archived)
@@ -519,7 +547,7 @@ public sealed class NoteWorkspace : IAsyncDisposable
         var saved = await Store.SaveAsync(draft);
         _captureId = null;
         Capture.Text = "";
-        ShowArchived.Value = false;
+        SetCollectionState(false);
         await RefreshAsync();
         SelectRecord(saved);
         _route.Value = NoteWorkspaceRoute.Editor;
@@ -564,7 +592,7 @@ public sealed class NoteWorkspace : IAsyncDisposable
 
     private void QueueAutosave(Guid id, long version)
     {
-        if (_closing || DraftWriter.CurrentVersion(id) != version)
+        if (_closing.Value || DraftWriter.CurrentVersion(id) != version)
             return;
         _ = DraftWriter.RequestAsync(id, version);
     }
@@ -842,7 +870,7 @@ public sealed class NoteWorkspace : IAsyncDisposable
 
     public async ValueTask<bool> PrepareCloseAsync(CancellationToken cancellationToken = default)
     {
-        _closing = true;
+        _closing.Value = true;
         _autosave.Cancel();
         try
         {
@@ -857,7 +885,7 @@ public sealed class NoteWorkspace : IAsyncDisposable
             await Run(SaveCurrentAsync, "Finishing your save...").WaitAsync(cancellationToken);
             if (_error.Value is not null)
             {
-                _closing = false;
+                _closing.Value = false;
                 return false;
             }
             try
@@ -874,12 +902,12 @@ public sealed class NoteWorkspace : IAsyncDisposable
                 _error.Value = error.Message;
                 _retry = SaveCurrentAsync;
             }
-            _closing = false;
+            _closing.Value = false;
             return false;
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-            _closing = false;
+            _closing.Value = false;
             throw;
         }
     }

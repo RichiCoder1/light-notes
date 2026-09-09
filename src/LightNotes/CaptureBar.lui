@@ -33,6 +33,14 @@ style CaptureFieldStyle {
     }
 }
 
+style CaptureFieldCommandHostStyle {
+    MainGrow: 1;
+    MainShrink: 1;
+    MinWidth: 0;
+    Height: 38;
+    CrossAlignment: LayoutAlignment.Stretch;
+}
+
 style PrimaryActionStyle {
     CornerRadius: 6;
     FontWeight: FontWeight.SemiBold;
@@ -61,7 +69,11 @@ style PrimaryActionStyle {
 
 public component CaptureBar(NoteWorkspace model) {
     <Layout style={CaptureBarStyle(model.Breakpoints)} name="notes.capture-bar">
-        <TextField session={model.Capture} focusTarget={model.CaptureFocus} label="Capture a link or thought" style={CaptureFieldStyle with { Enabled: model.CanEdit; }} name="notes.capture" />
+        <Layout style={CaptureFieldCommandHostStyle}>
+            <CommandScope bindings={model.CaptureBindings}>
+                <TextField session={model.Capture} focusTarget={model.CaptureFocus} label="Capture a link or thought" style={CaptureFieldStyle with { Enabled: model.CanEdit; }} name="notes.capture" />
+            </CommandScope>
+        </Layout>
         <Button leadingIcon={Lucent.Icons.Lucide.LucideIcons.Plus} onInvoke={() => model.CaptureCommand.TryExecute()} style={PrimaryActionStyle with { Enabled: model.CaptureCommand.IsEnabled; }} name="notes.capture-action">Add</Button>
     </Layout>
 }

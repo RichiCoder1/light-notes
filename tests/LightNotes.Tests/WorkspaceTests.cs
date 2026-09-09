@@ -123,6 +123,35 @@ public sealed class WorkspaceTests
     }
 
     [TestMethod]
+    public void DeclinedCloseReenablesCommandsWhenTheWindowRemainsOpen()
+    {
+        var storage = new DecliningCloseStorage(ControlledStorage.Record("Initial", "Before"));
+        using var fixture = new Fixture(storage);
+        var model = fixture.Model;
+        fixture.Pump(model.StartAsync());
+        var canEdit = new List<bool>();
+        fixture.Observe(() => canEdit.Add(model.CanEdit));
+        fixture.Drain();
+        canEdit.Clear();
+
+        var close = model.PrepareCloseAsync().AsTask();
+        fixture.Until(() => storage.CloseStarted);
+        Assert.IsFalse(canEdit[^1], "The workspace stayed editable while close was pending.");
+        storage.DeclineClose();
+        fixture.Pump(close);
+
+        Assert.IsFalse(close.Result);
+        Assert.IsTrue(model.HasError);
+        Assert.IsTrue(canEdit.Count != 0);
+        Assert.IsTrue(canEdit[^1], "The declined close did not publish CanEdit=true.");
+        Assert.IsTrue(model.CanEdit, "The declined close left the workspace marked as closing.");
+        Assert.IsTrue(
+            model.BackupCommand.IsEnabled,
+            "A command using CanEdit stayed disabled after the close was declined."
+        );
+    }
+
+    [TestMethod]
     public void SwitchingRecordsSavesThePreviousDraftWithoutLosingSessionIdentity()
     {
         using var fixture = new Fixture();
@@ -398,6 +427,31 @@ public sealed class WorkspaceTests
         Assert.IsFalse(observations[^1].Dirty);
         Assert.AreEqual("Saved on this device", observations[^1].Status);
         Assert.IsFalse(observations[^1].SaveEnabled);
+    }
+
+    [TestMethod]
+    public void DraftWriterCompletionPublishesDirtyStateWhenEditorTextIsAlreadyCurrent()
+    {
+        var original = ControlledStorage.Record("Original", "Original body");
+        var storage = new ControlledStorage(original);
+        using var fixture = new Fixture(storage);
+        var model = fixture.Model;
+        fixture.Pump(model.StartAsync());
+
+        var observations = new List<bool>();
+        fixture.Observe(() => observations.Add(model.IsDirty));
+        fixture.Drain();
+        observations.Clear();
+
+        model.Body.Text = "A draft with the same editor state after save.";
+        fixture.Drain();
+        fixture.Autosave.Fire();
+        fixture.Until(() => storage.Saves.Count == 1);
+        storage.CompleteSave(0);
+        fixture.Until(() => !model.IsDirty);
+
+        Assert.IsTrue(observations.Contains(true), "The draft write never published dirty state.");
+        Assert.IsFalse(observations[^1], "Draft writer completion did not publish clean state.");
     }
 
     [TestMethod]
@@ -679,6 +733,43 @@ public sealed class WorkspaceTests
         fixture.Drain();
         Assert.AreEqual("Archive two", model.Query);
         Assert.AreEqual(archiveTwo.Id, model.Selected.Value?.Id);
+        Assert.AreEqual(new ScrollOffset(0, 240), model.CollectionViewport.Offset);
+    }
+
+    [TestMethod]
+    public void CaptureFromArchiveRestoresInboxAndRetainsArchiveQueryAndScroll()
+    {
+        var storage = new CollectionStorage([
+            ControlledStorage.Record("Inbox one", "one"),
+            ControlledStorage.Record("Archive one", "one") with
+            {
+                IsArchived = true,
+            },
+            ControlledStorage.Record("Archive two", "two") with
+            {
+                IsArchived = true,
+            },
+        ]);
+        using var fixture = new Fixture(storage);
+        var model = fixture.Model;
+        fixture.Pump(model.StartAsync());
+
+        model.ShowArchive();
+        fixture.Until(() => model.ShowArchived.Value && !model.IsBusy);
+        model.Search.Text = "Archive two";
+        model.CollectionViewport.Offset = new ScrollOffset(0, 240);
+        fixture.Drain();
+
+        model.Capture.Text = "Captured in Inbox";
+        fixture.Execute(model.CaptureCommand);
+
+        Assert.IsFalse(model.ShowArchived.Value);
+        Assert.AreEqual("", model.Query);
+        Assert.AreEqual(new ScrollOffset(0, 0), model.CollectionViewport.Offset);
+
+        model.ShowArchive();
+        fixture.Until(() => model.ShowArchived.Value && !model.IsBusy);
+        Assert.AreEqual("Archive two", model.Query);
         Assert.AreEqual(new ScrollOffset(0, 240), model.CollectionViewport.Offset);
     }
 
@@ -1052,6 +1143,109 @@ public sealed class WorkspaceTests
             public TaskCompletionSource<NoteRecord> Completion { get; } =
                 new(TaskCreationOptions.RunContinuationsAsynchronously);
         }
+    }
+
+    private sealed class CollectionStorage(IReadOnlyList<NoteRecord> initial)
+        : INoteWorkspaceStorage
+    {
+        private readonly List<NoteRecord> _records = [.. initial];
+
+        public bool HasUnresolvedWriteFailures => false;
+
+        public Task<NoteRecord> SaveAsync(NoteDraft draft)
+        {
+            var now = DateTimeOffset.UtcNow;
+            var saved = new NoteRecord(
+                draft.Id,
+                draft.Kind,
+                draft.Title,
+                draft.Url,
+                draft.Body,
+                false,
+                1,
+                now,
+                now
+            );
+            _records.RemoveAll(record => record.Id == saved.Id);
+            _records.Add(saved);
+            return Task.FromResult(saved);
+        }
+
+        public Task<NoteRecord?> GetAsync(Guid id) =>
+            Task.FromResult<NoteRecord?>(_records.FirstOrDefault(record => record.Id == id));
+
+        public Task<IReadOnlyList<NoteRecord>> ListAsync(bool includeArchived) =>
+            Task.FromResult<IReadOnlyList<NoteRecord>>(_records.ToArray());
+
+        public Task<NoteRecord> ArchiveAsync(Guid id, bool archived)
+        {
+            var current = _records.Single(record => record.Id == id);
+            var updated = current with
+            {
+                IsArchived = archived,
+                Revision = current.Revision + 1,
+                UpdatedAt = DateTimeOffset.UtcNow,
+            };
+            _records[_records.IndexOf(current)] = updated;
+            return Task.FromResult(updated);
+        }
+
+        public Task<WriteRetryResult> RetryFailedWritesAsync() =>
+            Task.FromResult(new WriteRetryResult(0, 0, 0));
+
+        public Task BackupAsync(string destinationPath) => Task.CompletedTask;
+
+        public Task<bool> PrepareCloseAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult(true);
+
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+    }
+
+    private sealed class DecliningCloseStorage(NoteRecord initial) : INoteWorkspaceStorage
+    {
+        private readonly TaskCompletionSource<bool> _close = new(
+            TaskCreationOptions.RunContinuationsAsynchronously
+        );
+
+        public bool CloseStarted { get; private set; }
+        public bool HasUnresolvedWriteFailures => false;
+
+        public Task<NoteRecord> SaveAsync(NoteDraft draft) =>
+            Task.FromResult(
+                initial with
+                {
+                    Kind = draft.Kind,
+                    Title = draft.Title,
+                    Url = draft.Url,
+                    Body = draft.Body,
+                    Revision = initial.Revision + 1,
+                    UpdatedAt = DateTimeOffset.UtcNow,
+                }
+            );
+
+        public Task<NoteRecord?> GetAsync(Guid id) =>
+            Task.FromResult<NoteRecord?>(id == initial.Id ? initial : null);
+
+        public Task<IReadOnlyList<NoteRecord>> ListAsync(bool includeArchived) =>
+            Task.FromResult<IReadOnlyList<NoteRecord>>([initial]);
+
+        public Task<NoteRecord> ArchiveAsync(Guid id, bool archived) =>
+            throw new NotSupportedException();
+
+        public Task<WriteRetryResult> RetryFailedWritesAsync() =>
+            Task.FromResult(new WriteRetryResult(0, 0, 0));
+
+        public Task BackupAsync(string destinationPath) => throw new NotSupportedException();
+
+        public Task<bool> PrepareCloseAsync(CancellationToken cancellationToken = default)
+        {
+            CloseStarted = true;
+            return _close.Task.WaitAsync(cancellationToken);
+        }
+
+        public void DeclineClose() => _close.SetResult(false);
+
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }
 
     private sealed class SerializedRecoveryStorage(IReadOnlyList<NoteRecord> records)

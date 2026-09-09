@@ -74,6 +74,7 @@ internal static class Program
                     }
                 )
                 .SetTitle("Light Notes")
+                .SetFailureReporter(report => ReportApplicationFailure(dataDirectory, report))
                 .SetTheme(_ => LightNotesTheme.Create())
                 .Build()
                 .Run(lifecycle);
@@ -86,6 +87,25 @@ internal static class Program
                     + (reportPath is null ? "" : $" Crash details: {reportPath}")
             );
             return 1;
+        }
+    }
+
+    private static void ReportApplicationFailure(
+        string dataDirectory,
+        ApplicationFailureReport report
+    )
+    {
+        try
+        {
+            var reportPath = TryWriteCrashReport(dataDirectory, report.Error);
+            Console.Error.WriteLine(
+                $"Light Notes encountered a {report.Kind} failure: {report.Error.Message}"
+                    + (reportPath is null ? "" : $" Crash details: {reportPath}")
+            );
+        }
+        catch
+        {
+            // Failure reporting must not turn a late cleanup fault into another process failure.
         }
     }
 
