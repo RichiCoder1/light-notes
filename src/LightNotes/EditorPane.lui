@@ -9,11 +9,9 @@ style EditorPaneStyle(WindowBreakpoints breakpoints, NoteWorkspace model) {
     Clip: true;
     Padding: Insets.Symmetric(24, 22);
     Participation: ElementParticipation.Visible;
-
     when (!breakpoints.IsActive(LightNotesBreakpoints.Wide)) {
         Padding: Insets.Symmetric(16, 18);
     }
-
     when (!breakpoints.IsActive(LightNotesBreakpoints.Medium) && !model.ShowEditor) {
         Participation: ElementParticipation.Collapsed;
     }
@@ -30,7 +28,6 @@ style EditorContentStyle(NoteWorkspace model) {
     Spacing: 10;
     Clip: true;
     Participation: ElementParticipation.Collapsed;
-
     when (model.Selected.Value is not null) {
         Participation: ElementParticipation.Visible;
     }
@@ -43,7 +40,6 @@ style CompactEditorHeaderStyle(WindowBreakpoints breakpoints) {
     CrossAlignment: LayoutAlignment.Center;
     Spacing: 12;
     Participation: ElementParticipation.Collapsed;
-
     when (!breakpoints.IsActive(LightNotesBreakpoints.Medium)) {
         Participation: ElementParticipation.Visible;
     }
@@ -53,7 +49,6 @@ style EditorStatusIconStyle(WindowBreakpoints breakpoints) {
     Width: 16;
     Height: 16;
     MainShrink: 0;
-
     when (!breakpoints.IsActive(LightNotesBreakpoints.Medium)) {
         Participation: ElementParticipation.Collapsed;
     }
@@ -66,12 +61,14 @@ style UrlLeadingIconStyle {
 }
 
 style BackActionStyle {
+    transition Background: Motion.None;
     CornerRadius: 5;
     Height: 32;
     Padding: Insets.Symmetric(8, 5);
     Background: LightNotesTheme.Canvas;
     TextColor: LightNotesTheme.AccentInk;
     when Hover {
+        transition Background: Motion.Quick;
         Background: LightNotesTheme.Hover;
     }
     when Pressed {
@@ -187,7 +184,6 @@ style EditorFooterStatusStyle(WindowBreakpoints breakpoints) {
     TextColor: LightNotesTheme.MutedInk;
     MaxLines: 1;
     Overflow: TextOverflow.Ellipsis;
-
     when (!breakpoints.IsActive(LightNotesBreakpoints.Medium)) {
         Participation: ElementParticipation.Collapsed;
     }
@@ -242,7 +238,6 @@ style EmptyEditorStyle(NoteWorkspace model) {
     Padding: Insets.Symmetric(12, 42);
     Spacing: 10;
     Participation: ElementParticipation.Collapsed;
-
     when (model.Selected.Value is null) {
         Participation: ElementParticipation.Visible;
     }

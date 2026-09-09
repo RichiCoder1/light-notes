@@ -1,6 +1,7 @@
 using LightNotes.Storage;
 namespace LightNotes;
 style NoteRowStyle {
+    transition Background: Motion.None;
     Axis: LayoutAxis.Column;
     CrossAlignment: LayoutAlignment.Stretch;
     Spacing: 4;
@@ -15,6 +16,7 @@ style NoteRowStyle {
     MaxLines: 3;
     Overflow: TextOverflow.Ellipsis;
     when Hover {
+        transition Background: Motion.Quick;
         Background: LightNotesTheme.Hover;
     }
     when Pressed {

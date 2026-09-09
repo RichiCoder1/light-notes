@@ -75,52 +75,52 @@
       },
       "Lucent.Core": {
         "type": "Transitive",
-        "resolved": "0.3.0-dev.53.1",
-        "contentHash": "owqKnSeYjB5ZNsgwZi414mz8Sprfk3bZn56slR1Lutc0c7hY6kkwbpMmDi0zsgkEy6ufMrsT+WX8C+tGj6nL9Q=="
+        "resolved": "0.3.0-dev.55.1",
+        "contentHash": "SpbDqMjzjPOfIa/pEv9zb66f8mVc2UJjRRs7X1IRjcu8fTHQ/yMZ+8JR6rjDNeMiqN/5SK5U4I7inIwTMPzrJg=="
       },
       "Lucent.Hosting": {
         "type": "Transitive",
-        "resolved": "0.3.0-dev.53.1",
-        "contentHash": "4+9VEPA9RQTDC/CDsgpYzGRwOIa+OIr4hYeRMZEUNIpHaRqK7q8U7r4Qoor2OHcBP/hGb5vtUwwWIrxZiiw8xQ==",
+        "resolved": "0.3.0-dev.55.1",
+        "contentHash": "9wY0L0ulrOP2hGXDGLn80rcDZr5pnNMNBgdhz0EoQl4ZmIwbR9JtKzoduLUTlNNT0Wa+709RfdNwD6seQfEoog==",
         "dependencies": {
-          "Lucent.Core": "0.3.0-dev.53.1",
+          "Lucent.Core": "0.3.0-dev.55.1",
           "Microsoft.Extensions.Hosting": "10.0.11"
         }
       },
       "Lucent.Icons.Lucide": {
         "type": "Transitive",
-        "resolved": "0.3.0-dev.53.1",
-        "contentHash": "BAZk3bTW0j5fK/ztCJdANTzzt7W9ioG3zjyfAYhSZv9ucAiLEPA7IwAwQ04vkaWQGU6djVG17jOr8N6eBPVjBQ==",
+        "resolved": "0.3.0-dev.55.1",
+        "contentHash": "mMhllMe8jTZvXC63p09Yri5OGO0g0JkXqNBJCRz8+YMxtar3jlkcK0Wc4vBkH4IsKu0BEsJFPtyz+vP7E6OydA==",
         "dependencies": {
-          "Lucent.Core": "0.3.0-dev.53.1"
+          "Lucent.Core": "0.3.0-dev.55.1"
         }
       },
       "Lucent.Platform.Windows": {
         "type": "Transitive",
-        "resolved": "0.3.0-dev.53.1",
-        "contentHash": "j4LBX0yxWpiocGRDcQjIq656QuMvECrfCBxqrq+i7aSxWwCZNnUyPgQftchv2B1+uO7dhsxv1W6J0mXU7Ejd4A==",
+        "resolved": "0.3.0-dev.55.1",
+        "contentHash": "zmmtYwRmgdabvSVpq4a+lM3L2X+P05O3j9D9r5kGW2e9LWKtH24t2cUo5UeLKn5gI36n+evnS68eSDghu2W+7Q==",
         "dependencies": {
-          "Lucent.Core": "0.3.0-dev.53.1",
-          "Lucent.Renderer.Skia": "0.3.0-dev.53.1",
+          "Lucent.Core": "0.3.0-dev.55.1",
+          "Lucent.Renderer.Skia": "0.3.0-dev.55.1",
           "SDL3-CS": "3.4.14.1",
           "SDL3-CS.Windows": "3.4.14.1"
         }
       },
       "Lucent.Reactive.R3": {
         "type": "Transitive",
-        "resolved": "0.3.0-dev.53.1",
-        "contentHash": "uMK4/oWGJGUcm4tNBXXHhzQahbslsMX7ExNI3hA246bvPZhASkl7WlcWcCKx3V8B3yuyC18JrFQsEMmvIEHMeA==",
+        "resolved": "0.3.0-dev.55.1",
+        "contentHash": "Ph13eDNlBzHvJKvWD9T/VNamVdxglDZE+SjxT1T9aKJEs3fV6y5mkFXAy0bHZu3jRdI1Xkd34fRvLCVeW7Xo7Q==",
         "dependencies": {
-          "Lucent.Core": "0.3.0-dev.53.1",
+          "Lucent.Core": "0.3.0-dev.55.1",
           "R3": "1.3.1"
         }
       },
       "Lucent.Renderer.Skia": {
         "type": "Transitive",
-        "resolved": "0.3.0-dev.53.1",
-        "contentHash": "J4eBrIMfxqpsHHMaV1JdRRQCAYDZAHJeRoioLMYeYPdbzrFDsvlyiestj43ftu15AJsscf4FascmyyPkkksvaA==",
+        "resolved": "0.3.0-dev.55.1",
+        "contentHash": "vjED+IpYLx8NsYnHV54t15y4jNvGAB0KOqB6v/wkAdpnC14esFzheC7mxN/ow5oA9gdDDY6WvFtIPXy8H7OxvQ==",
         "dependencies": {
-          "Lucent.Core": "0.3.0-dev.53.1",
+          "Lucent.Core": "0.3.0-dev.55.1",
           "SkiaSharp": "4.151.1",
           "SkiaSharp.HarfBuzz": "4.151.1",
           "Svg.Skia": "5.2.3"
@@ -610,10 +610,10 @@
         "type": "Project",
         "dependencies": {
           "LightNotes.Storage": "[1.0.0, )",
-          "Lucent.Hosting": "[0.3.0-dev.53.1, 0.3.0-dev.53.1]",
-          "Lucent.Icons.Lucide": "[0.3.0-dev.53.1, 0.3.0-dev.53.1]",
-          "Lucent.Platform.Windows": "[0.3.0-dev.53.1, 0.3.0-dev.53.1]",
-          "Lucent.Reactive.R3": "[0.3.0-dev.53.1, 0.3.0-dev.53.1]"
+          "Lucent.Hosting": "[0.3.0-dev.55.1, 0.3.0-dev.55.1]",
+          "Lucent.Icons.Lucide": "[0.3.0-dev.55.1, 0.3.0-dev.55.1]",
+          "Lucent.Platform.Windows": "[0.3.0-dev.55.1, 0.3.0-dev.55.1]",
+          "Lucent.Reactive.R3": "[0.3.0-dev.55.1, 0.3.0-dev.55.1]"
         }
       },
       "lightnotes.storage": {
@@ -652,11 +652,11 @@
       },
       "Lucent.Platform.Windows": {
         "type": "Transitive",
-        "resolved": "0.3.0-dev.53.1",
-        "contentHash": "j4LBX0yxWpiocGRDcQjIq656QuMvECrfCBxqrq+i7aSxWwCZNnUyPgQftchv2B1+uO7dhsxv1W6J0mXU7Ejd4A==",
+        "resolved": "0.3.0-dev.55.1",
+        "contentHash": "zmmtYwRmgdabvSVpq4a+lM3L2X+P05O3j9D9r5kGW2e9LWKtH24t2cUo5UeLKn5gI36n+evnS68eSDghu2W+7Q==",
         "dependencies": {
-          "Lucent.Core": "0.3.0-dev.53.1",
-          "Lucent.Renderer.Skia": "0.3.0-dev.53.1",
+          "Lucent.Core": "0.3.0-dev.55.1",
+          "Lucent.Renderer.Skia": "0.3.0-dev.55.1",
           "SDL3-CS": "3.4.14.1",
           "SDL3-CS.Windows": "3.4.14.1"
         }

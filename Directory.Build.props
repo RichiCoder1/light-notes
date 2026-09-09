@@ -1,6 +1,6 @@
 <Project>
   <PropertyGroup>
-    <LucentVersion Condition="'$(LucentVersion)' == ''">0.3.0-dev.53.1</LucentVersion>
+    <LucentVersion Condition="'$(LucentVersion)' == ''">0.3.0-dev.55.1</LucentVersion>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>

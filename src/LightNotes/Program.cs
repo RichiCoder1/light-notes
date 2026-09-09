@@ -53,6 +53,7 @@ internal static class Program
                 },
                 (services, session) =>
                 {
+                    session.Composition.Input.FocusRecovery = FocusRecoveryPolicy.NearestAvailable;
                     var workspace = services.GetRequiredService<NoteWorkspace>();
                     _ = workspace.StartAsync();
                     return Components.AppView(workspace);
