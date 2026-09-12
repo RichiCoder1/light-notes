@@ -34,7 +34,7 @@ dotnet restore ./tools/LightNotes.Review/LightNotes.Review.csproj --force-evalua
 
 Together these commands refresh the six maintained lock files under `src/LightNotes`, `src/LightNotes.Storage`, `tests/LightNotes.Tests`, `tests/LightNotes.Storage.Tests`, `tests/LightNotes.Desktop.Tests`, and `tools/LightNotes.Review`. Review all six and commit both pins with every changed lock file. `-UpdateLock` temporarily uses a fresh NuGet HTTP cache so the SDK resolver sees a newly published SDK version; normal builds retain the usual cache. Vendored Lucent fixtures are not part of the Light Notes package upgrade.
 
-The app references the optional `Lucent.Icons.Lucide` package and its typed artwork accessors. The pinned `0.3.0-dev.55.1` package set contains that package; the generated application icon, published notices, managed suites, and NativeAOT publish are covered by the package validation checks below.
+The app references the optional `Lucent.Icons.Lucide` package and its typed artwork accessors. The pinned `0.3.0-dev.60.1` package set contains that package; the generated application icon, published notices, managed suites, and NativeAOT publish are covered by the package validation checks below.
 
 For framework work, pack a unique local version using Lucent's [package instructions](https://github.com/RichiCoder1/lucent/blob/bab7cc3523aeeab8d9bce42f0aca5b2955fb1387/docs/PACKAGES.md), point the `lucent` source in NuGet.config at that local folder, and update both pins. Restore needs no prebuilt Lucent checkout DLLs or hidden Debug outputs. Keep local feed paths out of commits.
 

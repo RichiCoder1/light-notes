@@ -50,6 +50,12 @@ public sealed partial class PublishedPersistenceTests
                     "Notes",
                     "A draft kept across window sizes.\nSecond line."
                 );
+                SetFieldValue(
+                    process,
+                    root,
+                    "Web address",
+                    "https://example.com/responsive-review"
+                );
                 CaptureShell(root, output, "shell-wide.png");
                 ScanShell(process, handle, output, "wide");
                 ResizeClient(process, handle, 900, 640);
@@ -76,8 +82,36 @@ public sealed partial class PublishedPersistenceTests
                 );
                 Assert.IsTrue(TryReadValue(root, "Notes", out var body));
                 Assert.AreEqual("A draft kept across window sizes.\nSecond line.", body);
+                Assert.IsTrue(TryReadValue(root, "Web address", out var url));
+                Assert.AreEqual("https://example.com/responsive-review", url);
+                var compactUrl = FindByName(root, ControlType.Edit, "Web address");
+                compactUrl.Focus();
+                WaitUntil(
+                    process,
+                    () => compactUrl.Properties.HasKeyboardFocus.Value,
+                    "The compact Web address field did not accept keyboard focus."
+                );
                 CaptureShell(root, output, "shell-compact-editor.png");
                 ScanShell(process, handle, output, "compact-editor");
+                ResizeClient(process, handle, 1180, 640);
+                WaitUntil(
+                    process,
+                    () => HasField(root, "Search saved items") && HasField(root, "Notes"),
+                    "Returning wide did not restore both panes."
+                );
+                Assert.IsTrue(TryReadValue(root, "Web address", out url));
+                Assert.AreEqual("https://example.com/responsive-review", url);
+                Assert.IsTrue(
+                    FindByName(root, ControlType.Edit, "Web address")
+                        .Properties.HasKeyboardFocus.Value,
+                    "Returning wide moved focus away from the Web address field."
+                );
+                ResizeClient(process, handle, 560, 640);
+                WaitUntil(
+                    process,
+                    () => HasField(root, "Notes") && !HasField(root, "Search saved items"),
+                    "Returning compact did not restore the editor."
+                );
                 InvokeButton(process, root, "Back to collection");
                 WaitUntil(
                     process,
@@ -106,6 +140,8 @@ public sealed partial class PublishedPersistenceTests
                 );
                 Assert.IsTrue(TryReadValue(root, "Notes", out body));
                 Assert.AreEqual("A draft kept across window sizes.\nSecond line.", body);
+                Assert.IsTrue(TryReadValue(root, "Web address", out url));
+                Assert.AreEqual("https://example.com/responsive-review", url);
                 root.SetForeground();
                 Keyboard.TypeSimultaneously(VirtualKeyShort.CONTROL, VirtualKeyShort.KEY_N);
                 WaitUntil(

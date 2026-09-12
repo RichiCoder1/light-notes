@@ -54,12 +54,6 @@ style EditorStatusIconStyle(WindowBreakpoints breakpoints) {
     }
 }
 
-style UrlLeadingIconStyle {
-    Width: 16;
-    Height: 16;
-    MainShrink: 0;
-}
-
 style BackActionStyle {
     transition Background: Motion.None;
     CornerRadius: 5;
@@ -90,27 +84,6 @@ style TitleFieldStyle {
     Background: LightNotesTheme.Field;
     TextColor: LightNotesTheme.Ink;
     FontSize: 22;
-    Border: LightNotesTheme.FieldOutline;
-    when FocusVisible {
-        Background: LightNotesTheme.Field;
-        FocusRing: LightNotesTheme.KeyboardFocus;
-    }
-    when Disabled {
-        Background: LightNotesTheme.Canvas;
-        TextColor: LightNotesTheme.MutedInk;
-    }
-}
-
-style UrlFieldStyle {
-    CornerRadius: 6;
-    Height: 38;
-    MainGrow: 1;
-    MinWidth: 0;
-    MainShrink: 1;
-    Padding: Insets.Symmetric(10, 7);
-    Background: LightNotesTheme.Field;
-    TextColor: LightNotesTheme.MutedInk;
-    FontSize: 13;
     Border: LightNotesTheme.FieldOutline;
     when FocusVisible {
         Background: LightNotesTheme.Field;
@@ -160,12 +133,10 @@ style FieldLabelStyle {
     Height: 18;
 }
 
-style UrlActionsStyle {
-    Height: 38;
-    Background: LightNotesTheme.Canvas;
-    Axis: LayoutAxis.Row;
-    CrossAlignment: LayoutAlignment.Center;
-    Spacing: 8;
+style UrlFieldGroupStyle {
+    MinWidth: 0;
+    MainShrink: 1;
+    Spacing: 10;
 }
 
 style EditorFooterStyle {
@@ -271,12 +242,7 @@ public component EditorPane(NoteWorkspace model) {
                 <Status content={() => model.StatusText} style={SaveStatusStyle} name="notes.compact-status" />
             </Layout>
             <TextField session={model.Title} focusTarget={model.TitleFocus} label="Title" style={TitleFieldStyle with { Enabled: model.CanEdit; }} name="notes.title" />
-            <Text style={FieldLabelStyle}>Web address (optional)</Text>
-            <Layout style={UrlActionsStyle} name="notes.url-actions">
-                <Icon source={Lucent.Icons.Lucide.LucideIcons.Link} style={UrlLeadingIconStyle} />
-                <TextField session={model.Url} label="Web address" style={UrlFieldStyle with { Enabled: model.CanEdit; }} name="notes.url" />
-                <Button leadingIcon={Lucent.Icons.Lucide.LucideIcons.ArrowRight} onInvoke={() => model.OpenLinkCommand.TryExecute()} style={QuietActionStyle with { Enabled: model.OpenLinkCommand.IsEnabled; }} name="notes.open-link">Open</Button>
-            </Layout>
+            <Field label="Web address" editor={field => UrlFieldEditor(field, model, QuietActionStyle)} style={UrlFieldGroupStyle} name="notes.url-field" />
             <Text style={FieldLabelStyle}>Notes</Text>
             <TextArea session={model.Body} label="Notes" style={BodyFieldStyle with { Enabled: model.CanEdit; }} name="notes.body" />
             if (model.HasError) {

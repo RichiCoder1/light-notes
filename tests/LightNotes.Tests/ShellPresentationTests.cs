@@ -119,11 +119,23 @@ public sealed partial class ShellPresentationTests
             export: false
         );
 
+        Assert.AreEqual(
+            capture.Identity.ElementId,
+            composition.Input.FocusedElement?.ElementId,
+            "The capture field lost focus while installing its current scene."
+        );
+        Assert.AreEqual("Captured with Enter", model.Capture.Text);
         Assert.IsTrue(
-            composition
-                .Input.DispatchKey(new(KeyCommandKind.Down, Key.Enter, KeyModifiers.None))
-                .Handled,
-            "Enter was not consumed by the capture command scope."
+            model.CaptureCommand.IsEnabled,
+            $"The capture command was disabled before Enter: canEdit={model.CanEdit}, isBusy={model.IsBusy}."
+        );
+        var enter = composition.Input.DispatchKey(
+            new(KeyCommandKind.Down, Key.Enter, KeyModifiers.None)
+        );
+        Assert.IsTrue(enter.Handled, "Enter was not consumed by the capture command scope.");
+        Assert.IsTrue(
+            model.CaptureCommand.IsBusy || model.Selected.Value?.Title == "Captured with Enter",
+            "Enter was handled without starting the capture command."
         );
         fixture.Until(() =>
             model.ShowEditor && model.Selected.Value?.Title == "Captured with Enter"
@@ -391,10 +403,12 @@ public sealed partial class ShellPresentationTests
 
         var selectedId = model.Selected.Value!.Id;
         var titleSession = model.Title;
+        var urlSession = model.Url;
         var bodySession = model.Body;
         var searchSession = model.Search;
 
         model.Title.Text = "Responsive review draft";
+        model.Url.Text = "https://example.com/responsive-review";
         model.Body.Text = "Draft selection survives wide, medium, and compact layouts. 😀";
         model.Body.SetSelection(0, 5);
 
@@ -405,6 +419,7 @@ public sealed partial class ShellPresentationTests
         var title = Semantic(composition, "Title", SemanticRole.TextField);
         var body = SemanticText(composition, "Notes");
         var url = Semantic(composition, "Web address", SemanticRole.TextField);
+        var urlLabel = Semantic(composition, "Web address", SemanticRole.Text);
         var notesList = Semantic(composition, "Saved notes", SemanticRole.List);
         var save = Semantic(composition, "Save now", SemanticRole.Button);
         AssertBounds(wide, search, expectedWidth: 288, message: "wide collection width");
@@ -414,6 +429,11 @@ public sealed partial class ShellPresentationTests
         AssertNearBottom(wide, save, 760, "wide editor actions");
         AssertSemantic(composition, search, true, "wide search");
         AssertSemantic(composition, title, true, "wide title");
+        Assert.AreEqual(
+            urlLabel.Identity.ElementId,
+            url.Relationships!.Label!.Value.ElementId,
+            "The Web address field did not publish its visible label relationship."
+        );
         var bodyText = SceneNodes(wide.Nodes)
             .OfType<TextSceneNode>()
             .Single(node =>
@@ -598,6 +618,22 @@ public sealed partial class ShellPresentationTests
             searchSession,
             model.Search,
             "Responsive layout replaced the search session."
+        );
+        Assert.AreSame(
+            urlSession,
+            model.Url,
+            "Responsive layout replaced the app-owned URL editor session."
+        );
+        var returnedUrl = Semantic(composition, "Web address", SemanticRole.TextField);
+        Assert.AreEqual(
+            url.Identity.ElementId,
+            returnedUrl.Identity.ElementId,
+            "Responsive layout remounted the Web address field."
+        );
+        Assert.AreEqual(
+            "https://example.com/responsive-review",
+            returnedUrl.Value,
+            "The Web address field stopped projecting the app-owned URL draft."
         );
         Assert.AreEqual(
             selectedId,

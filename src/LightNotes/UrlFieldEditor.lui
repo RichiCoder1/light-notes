@@ -1,0 +1,47 @@
+namespace LightNotes;
+style UrlLeadingIconStyle {
+    Width: 16;
+    Height: 16;
+    MainShrink: 0;
+}
+
+style UrlFieldStyle {
+    CornerRadius: 6;
+    Height: 38;
+    MainGrow: 1;
+    MinWidth: 0;
+    MainShrink: 1;
+    Padding: Insets.Symmetric(10, 7);
+    Background: LightNotesTheme.Field;
+    TextColor: LightNotesTheme.MutedInk;
+    FontSize: 13;
+    Border: LightNotesTheme.FieldOutline;
+    when FocusVisible {
+        Background: LightNotesTheme.Field;
+        FocusRing: LightNotesTheme.KeyboardFocus;
+    }
+    when Disabled {
+        Background: LightNotesTheme.Canvas;
+        TextColor: LightNotesTheme.MutedInk;
+    }
+}
+
+style UrlActionsStyle {
+    Height: 38;
+    Background: LightNotesTheme.Canvas;
+    Axis: LayoutAxis.Row;
+    CrossAlignment: LayoutAlignment.Center;
+    Spacing: 8;
+}
+
+internal component UrlFieldEditor(
+    FieldContext field,
+    NoteWorkspace model,
+    Style? actionStyle = null
+) {
+    <Layout style={UrlActionsStyle} name="notes.url-actions">
+        <Icon source={Lucent.Icons.Lucide.LucideIcons.Link} style={UrlLeadingIconStyle} />
+        <TextField field={field} session={model.Url} style={UrlFieldStyle with { Enabled: model.CanEdit; }} name="notes.url" />
+        <Button leadingIcon={Lucent.Icons.Lucide.LucideIcons.ArrowRight} onInvoke={() => model.OpenLinkCommand.TryExecute()} style={actionStyle with { Enabled: model.OpenLinkCommand.IsEnabled; }} name="notes.open-link">Open</Button>
+    </Layout>
+}

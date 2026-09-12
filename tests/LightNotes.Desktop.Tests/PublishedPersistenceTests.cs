@@ -43,7 +43,9 @@ public sealed partial class PublishedPersistenceTests
                             && currentCapture == "Persisted desktop note",
                         "The capture field rejected physical keyboard input."
                     );
-                    InvokeButton(process, root, "Add");
+                    Keyboard.Press(FlaUI.Core.WindowsAPI.VirtualKeyShort.RETURN);
+                    Keyboard.Release(FlaUI.Core.WindowsAPI.VirtualKeyShort.RETURN);
+                    Wait.UntilInputIsProcessed();
                     WaitForStatus(process, root, "Saved on this device");
 
                     var row = WaitForElement(
