@@ -253,7 +253,7 @@ public sealed class WorkspaceTests
         Assert.IsTrue(model.ShowEditor);
         model.BackToCollection();
 
-        Assert.AreEqual(NoteWorkspaceRoute.Collection, model.Route.Value);
+        Assert.AreEqual("inbox", model.Navigation.Current!.DefinitionId.Value);
         Assert.IsTrue(model.ShowCollection);
         Assert.IsFalse(model.ShowEditor);
         Assert.AreEqual(id, model.Selected.Value!.Id);
@@ -261,8 +261,77 @@ public sealed class WorkspaceTests
         Assert.AreEqual("Keep this draft while switching routes.", model.Body.Text);
 
         model.Select(id);
-        Assert.AreEqual(NoteWorkspaceRoute.Editor, model.Route.Value);
+        Assert.AreEqual("inbox-note", model.Navigation.Current!.DefinitionId.Value);
         Assert.AreEqual("Keep this draft while switching routes.", model.Body.Text);
+    }
+
+    [TestMethod]
+    public void FailedRoutePreparationStaysOnTheCurrentCommittedRoute()
+    {
+        var first = ControlledStorage.Record("First", "saved");
+        var second = ControlledStorage.Record("Second", "saved");
+        using var fixture = new Fixture(new FailingSaveStorage([first, second]));
+        var model = fixture.Model;
+        using var composition = new Composition(fixture.Graph, "failed-route-preparation");
+        using var theme = new ThemeContext(composition.Root.Scope, ControlThemes.Light);
+        composition.Mount(composition.Root, theme, RoutedState(model));
+        fixture.Pump(model.StartAsync());
+        var currentId = model.Selected.Value!.Id;
+        var targetId = currentId == first.Id ? second.Id : first.Id;
+        var openCurrent = model.Navigation.Navigate(LightNotesRoutes.InboxNote(currentId));
+        fixture.Pump(openCurrent.Completion);
+        Assert.IsTrue(openCurrent.Completion.Result.IsCommitted);
+        var openTarget = model.Navigation.Navigate(LightNotesRoutes.InboxNote(targetId));
+        fixture.Pump(openTarget.Completion);
+        Assert.IsTrue(openTarget.Completion.Result.IsCommitted);
+        var back = model.Navigation.Back();
+        fixture.Pump(back.Completion);
+        Assert.IsTrue(back.Completion.Result.IsCommitted);
+        Assert.AreEqual(currentId, model.Selected.Value!.Id);
+
+        model.Title.Text = "Changed before navigation";
+        fixture.Drain();
+        var forward = model.Navigation.Forward();
+        fixture.Pump(forward.Completion);
+
+        Assert.AreEqual(NavigationOutcomeKind.Stayed, forward.Completion.Result.Kind);
+        Assert.AreEqual("inbox-note", model.Navigation.Current!.DefinitionId.Value);
+        Assert.AreEqual(currentId, model.Selected.Value!.Id);
+        Assert.IsTrue(model.HasError, "The direct traversal save failure was not visible.");
+        Assert.AreEqual("Could not save", model.ErrorHeading);
+    }
+
+    [TestMethod]
+    public void BackAndForwardApplyWorkspaceStateOnlyAfterTheSessionCommits()
+    {
+        using var fixture = new Fixture();
+        var model = fixture.Model;
+        fixture.Pump(model.StartAsync());
+        model.Capture.Text = "History note";
+        fixture.Execute(model.CaptureCommand);
+        fixture.Until(() => model.ShowEditor);
+        var id = model.Selected.Value!.Id;
+        model.Title.Text = "";
+        model.Body.Text = "Invalid recovery draft retained by history.";
+        model.BackToCollection();
+        fixture.Until(() => model.ShowCollection);
+        Assert.AreEqual("inbox", model.Navigation.Current!.DefinitionId.Value);
+
+        var back = model.Navigation.Back();
+        fixture.Pump(back.Completion);
+        Assert.IsTrue(back.Completion.Result.IsCommitted);
+        Assert.AreEqual("inbox-note", model.Navigation.Current!.DefinitionId.Value);
+        Assert.IsTrue(model.ShowEditor);
+        Assert.AreEqual(id, model.Selected.Value!.Id);
+        Assert.AreEqual("", model.Title.Text);
+        Assert.AreEqual("Invalid recovery draft retained by history.", model.Body.Text);
+
+        var forward = model.Navigation.Forward();
+        fixture.Pump(forward.Completion);
+        Assert.IsTrue(forward.Completion.Result.IsCommitted);
+        Assert.AreEqual("inbox", model.Navigation.Current!.DefinitionId.Value);
+        Assert.IsTrue(model.ShowCollection);
+        Assert.AreEqual(id, model.Selected.Value!.Id);
     }
 
     [TestMethod]
@@ -896,6 +965,31 @@ public sealed class WorkspaceTests
         }
     }
 
+    private static ComponentRecipe RoutedState(NoteWorkspace model) =>
+        Context.Provide(
+            model.Navigation,
+            RouteOutlet.Create(
+                LightNotesRouting.Descriptors,
+                level =>
+                    level.Id.Value == "workspace"
+                        ? ComponentRecipe.Create(
+                            "workspace-test-route",
+                            (context, root) =>
+                            {
+                                root.Present(
+                                    context.Theme,
+                                    author: Style.Empty.Participation(
+                                        ElementParticipation.Collapsed
+                                    )
+                                );
+                                context.Mount(root, LightNotesRouting.Child());
+                            }
+                        )
+                        : throw new InvalidOperationException("Unexpected test root route."),
+                options: new RouteOutletOptions(model.PrepareNavigation)
+            )
+        );
+
     private sealed class Fixture : SynchronizationContext, IDisposable
     {
         private readonly SynchronizationContext? _prior = Current;
@@ -934,6 +1028,7 @@ public sealed class WorkspaceTests
         }
 
         public string DatabasePath => Path.Combine(_directory, "notes.db");
+        public ReactiveGraph Graph => _graph;
         public FakeLinkOpener LinkOpener { get; }
         public ManualDebounceScheduler Autosave { get; }
         public NoteWorkspace Model { get; }
@@ -1143,6 +1238,34 @@ public sealed class WorkspaceTests
             public TaskCompletionSource<NoteRecord> Completion { get; } =
                 new(TaskCreationOptions.RunContinuationsAsynchronously);
         }
+    }
+
+    private sealed class FailingSaveStorage(IReadOnlyList<NoteRecord> records)
+        : INoteWorkspaceStorage
+    {
+        public bool HasUnresolvedWriteFailures => false;
+
+        public Task<NoteRecord> SaveAsync(NoteDraft draft) =>
+            Task.FromException<NoteRecord>(new IOException("Save unavailable."));
+
+        public Task<NoteRecord?> GetAsync(Guid id) =>
+            Task.FromResult<NoteRecord?>(records.FirstOrDefault(record => record.Id == id));
+
+        public Task<IReadOnlyList<NoteRecord>> ListAsync(bool includeArchived) =>
+            Task.FromResult(records);
+
+        public Task<NoteRecord> ArchiveAsync(Guid id, bool archived) =>
+            throw new NotSupportedException();
+
+        public Task<WriteRetryResult> RetryFailedWritesAsync() =>
+            Task.FromResult(new WriteRetryResult(0, 0, 0));
+
+        public Task BackupAsync(string destinationPath) => throw new NotSupportedException();
+
+        public Task<bool> PrepareCloseAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult(true);
+
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }
 
     private sealed class CollectionStorage(IReadOnlyList<NoteRecord> initial)

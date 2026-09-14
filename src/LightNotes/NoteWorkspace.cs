@@ -27,9 +27,9 @@ public sealed class NoteWorkspace : IAsyncDisposable
     private readonly Signal<string> _errorHeading;
     private readonly Signal<string> _status;
     private readonly Signal<IReadOnlyList<NoteRecord>> _allItems;
-    private readonly Signal<NoteWorkspaceRoute> _route;
     private readonly Signal<long> _draftStateVersion;
     private readonly CollectionMemory[] _collections = [new(), new()];
+    private bool _navigationSelectAll;
 
     public NoteWorkspace(
         ReactiveScope owner,
@@ -72,7 +72,9 @@ public sealed class NoteWorkspace : IAsyncDisposable
         _allItems = owner.Signal<IReadOnlyList<NoteRecord>>([], "all-notes");
         Selected = owner.Signal<NoteRecord?>(null, "selected-note");
         ShowArchived = owner.Signal(false, "show-archived");
-        _route = owner.Signal(NoteWorkspaceRoute.Collection, "route");
+        Navigation = new(owner, LightNotesRouting.Table, LightNotesRoutes.Inbox().Location);
+        NavigationInteraction = new(owner, Navigation, "notes-navigation");
+        _ = Navigation.RegisterCommitted(owner, ApplyNavigationCommit);
         _draftStateVersion = owner.Signal(0L, "draft-state-version");
         _ = owner.Effect(ApplyFilter, "notes-filter");
         _ready = owner.Signal(false, "storage-ready");
@@ -145,8 +147,7 @@ public sealed class NoteWorkspace : IAsyncDisposable
             owner,
             _ =>
             {
-                _route.Value = NoteWorkspaceRoute.Collection;
-                RequestFocus(SearchFocus, selectAll: true);
+                BackToCollection(selectAll: true);
                 return Task.CompletedTask;
             },
             () => CanEdit,
@@ -196,7 +197,8 @@ public sealed class NoteWorkspace : IAsyncDisposable
     public IReadOnlyList<NoteRecord> VisibleItems => Items.Value;
     public Signal<NoteRecord?> Selected { get; }
     public Signal<bool> ShowArchived { get; }
-    public Signal<NoteWorkspaceRoute> Route => _route;
+    public NavigationSession Navigation { get; }
+    public NavigationInteraction NavigationInteraction { get; }
     public ApplicationCommand CaptureCommand { get; }
     public ApplicationCommand SaveCommand { get; }
     public ApplicationCommand ArchiveCommand { get; }
@@ -209,7 +211,7 @@ public sealed class NoteWorkspace : IAsyncDisposable
     public bool IsReady => _ready.Value;
     public bool IsBusy => _busy.Value;
     public bool IsSaving => _saving.Value;
-    public bool CanEdit => IsReady && !IsBusy && !_closing.Value;
+    public bool CanEdit => IsReady && !IsBusy && !_closing.Value && Navigation.Pending is null;
     public bool CanSearch => IsReady && !_closing.Value;
     public bool CanOpenLink => TryGetSelectedWebUri(out _);
     public bool HasRecoveryDraft
@@ -275,9 +277,9 @@ public sealed class NoteWorkspace : IAsyncDisposable
     /// <summary>Gets the current plain-text query mirrored by the Search editor session.</summary>
     public string Query => Search.Text;
 
-    /// <summary>Gets the route that responsive styles use to choose the visible workspace pane.</summary>
-    public bool ShowCollection => _route.Value == NoteWorkspaceRoute.Collection;
-    public bool ShowEditor => _route.Value == NoteWorkspaceRoute.Editor;
+    /// <summary>Gets the committed route state that responsive styles use to choose the visible workspace pane.</summary>
+    public bool ShowCollection => Navigation.Current?.DefinitionId.Value is "inbox" or "archive";
+    public bool ShowEditor => Navigation.Current?.DefinitionId.Value is "inbox-note" or "archive-note";
     public bool IsFiltering => !string.IsNullOrWhiteSpace(Search.Text);
     public bool HasItems => VisibleItems.Count != 0;
     public bool HasSearchResults => HasItems;
@@ -291,11 +293,17 @@ public sealed class NoteWorkspace : IAsyncDisposable
 
     public Task StartAsync() => Run(LoadAsync, "Opening your notes...", "Could not open notes");
 
-    /// <summary>Returns the workspace to its collection route while retaining the editor draft.</summary>
-    public void BackToCollection()
+    /// <summary>Requests the current collection route while retaining the editor draft.</summary>
+    public void BackToCollection(bool selectAll = false)
     {
-        _route.Value = NoteWorkspaceRoute.Collection;
-        RequestFocus(SearchFocus);
+        if (!CanEdit)
+            return;
+        if (ShowCollection)
+        {
+            RequestFocus(SearchFocus, selectAll);
+            return;
+        }
+        RequestNavigation(CollectionReference(ShowArchived.Value), "Opening collection...", selectAll);
     }
 
     private void RequestFocus(FocusTarget target, bool selectAll = false)
@@ -306,48 +314,34 @@ public sealed class NoteWorkspace : IAsyncDisposable
         target.Request(selectAll);
     }
 
-    /// <summary>Shows the inbox, saving the active draft before refreshing the collection.</summary>
+    /// <summary>Shows the inbox through the authoritative navigation session.</summary>
     public void ShowInbox() => SelectCollection(false);
 
-    /// <summary>Shows the archive, saving the active draft before refreshing the collection.</summary>
+    /// <summary>Shows the archive through the authoritative navigation session.</summary>
     public void ShowArchive() => SelectCollection(true);
 
     public void Select(Guid id)
     {
-        if (!CanEdit)
+        if (!CanEdit || !_allItems.Value.Any(item => item.Id == id))
             return;
-        if (Selected.Value?.Id == id)
+        if (ShowEditor && Selected.Value?.Id == id)
         {
-            _route.Value = NoteWorkspaceRoute.Editor;
             RequestFocus(TitleFocus);
             return;
         }
-        _ = Run(
-            async () =>
-            {
-                await SaveCurrentAsync();
-                var selected = Items.Value.FirstOrDefault(item => item.Id == id);
-                SelectRecord(selected);
-                if (selected is not null)
-                {
-                    _route.Value = NoteWorkspaceRoute.Editor;
-                    RequestFocus(TitleFocus);
-                }
-            },
-            "Opening note..."
-        );
+        RequestNavigation(NoteReference(ShowArchived.Value, id), "Opening note...");
     }
 
     private void SelectCollection(bool archived)
     {
         if (!CanEdit)
             return;
-        if (ShowArchived.Value == archived)
+        if (ShowCollection && ShowArchived.Value == archived)
         {
-            BackToCollection();
+            RequestFocus(SearchFocus);
             return;
         }
-        SwitchCollection(archived);
+        RequestNavigation(CollectionReference(archived), "Opening notes...");
     }
 
     /// <summary>Opens a record by identity.</summary>
@@ -382,20 +376,27 @@ public sealed class NoteWorkspace : IAsyncDisposable
             : _allItems.Value.First(item => item.Id == id).Url;
     }
 
-    private void SwitchCollection(bool archived)
+    private void ApplyCollectionRoute(bool archived, bool selectAll = false)
     {
-        var preservation = PersistCurrentForNavigationAsync();
-        var next = SetCollectionState(archived);
-        var selected = next.SelectedId is { } remembered
-            ? _allItems.Value.FirstOrDefault(item =>
-                item.Id == remembered && item.IsArchived == archived
-            )
-            : null;
-        selected ??= VisibleItems.Count == 0 ? null : VisibleItems[0];
-        selected ??= _allItems.Value.FirstOrDefault(item => item.IsArchived == archived);
-        SelectRecord(selected);
-        BackToCollection();
-        _refreshTask = CompleteCollectionSwitchAsync(_refreshTask, preservation);
+        if (ShowArchived.Value != archived)
+        {
+            var preservation = PersistCurrentForNavigationAsync();
+            var next = SetCollectionState(archived);
+            var selected = next.SelectedId is { } remembered
+                ? _allItems.Value.FirstOrDefault(item =>
+                    item.Id == remembered && item.IsArchived == archived
+                )
+                : null;
+            selected ??= VisibleItems.Count == 0 ? null : VisibleItems[0];
+            selected ??= _allItems.Value.FirstOrDefault(item => item.IsArchived == archived);
+            SelectRecord(selected);
+            _refreshTask = CompleteCollectionSwitchAsync(_refreshTask, preservation);
+        }
+        else if (Selected.Value?.IsArchived != archived)
+        {
+            SelectRecord(VisibleItems.Count == 0 ? null : VisibleItems[0]);
+        }
+        RequestFocus(SearchFocus, selectAll);
     }
 
     private CollectionMemory SetCollectionState(bool archived)
@@ -411,7 +412,7 @@ public sealed class NoteWorkspace : IAsyncDisposable
 
     private async Task SetCollectionAsync(bool archived)
     {
-        SwitchCollection(archived);
+        await NavigateAsync(CollectionReference(archived));
         await _refreshTask;
     }
 
@@ -449,6 +450,125 @@ public sealed class NoteWorkspace : IAsyncDisposable
         ObserveDraft();
         return DraftWriter.RequestAsync(selected.Id, DraftWriter.CurrentVersion(selected.Id));
     }
+
+    internal async ValueTask<NavigationPreparationResult> PrepareNavigation(
+        RouteLevelDescriptor level,
+        RouteOutletPreparationRequest request,
+        CancellationToken cancellationToken
+    )
+    {
+        _ = level;
+        if (
+            request.Phase != NavigationPreparationPhase.Leave
+            || !TryNoteId(request.Target, out var targetId)
+        )
+            return NavigationPreparationResult.Allow;
+        var targetArchived = request.Target.DefinitionId.Value == "archive-note";
+        if (
+            !_allItems.Value.Any(item =>
+                item.Id == targetId && item.IsArchived == targetArchived
+            )
+        )
+            return NavigationPreparationResult.RejectedActivation();
+        if (Selected.Value?.Id == targetId)
+            return NavigationPreparationResult.Allow;
+        try
+        {
+            await SaveCurrentAsync().WaitAsync(cancellationToken);
+            return NavigationPreparationResult.Allow;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception)
+        {
+            // DraftWriter publishes the durable failure and retry state before this returns.
+            return NavigationPreparationResult.Stay;
+        }
+    }
+
+    private void RequestNavigation(
+        RouteReference target,
+        string status,
+        bool selectAll = false
+    ) => _ = Run(() => NavigateAsync(target, selectAll), status);
+
+    private async Task NavigateAsync(RouteReference target, bool selectAll = false)
+    {
+        var match = LightNotesRouting.Table.Match(target.Location).Match;
+        if (
+            match is not null
+            && match.DefinitionId.Value is "inbox-note" or "archive-note"
+            && Selected.Value?.Id != match.GetValue(0).Uuid
+        )
+        {
+            // Workspace commands also run without an attached outlet in model tests and maintenance
+            // paths. The outlet guard repeats this check when mounted, but the accepted first save
+            // clears dirty state so the second call does not enqueue another write.
+            await SaveCurrentAsync();
+        }
+        _navigationSelectAll = selectAll;
+        await NavigationInteraction.Navigate(target).Completion;
+    }
+
+    private void ApplyNavigationCommit(NavigationCommit commit)
+    {
+        var definition = commit.Current.DefinitionId.Value;
+        switch (definition)
+        {
+            case "inbox":
+                ApplyCollectionRoute(false, _navigationSelectAll);
+                break;
+            case "archive":
+                ApplyCollectionRoute(true, _navigationSelectAll);
+                break;
+            case "inbox-note":
+                ApplyNoteRoute(false, commit.Current.Match.GetValue(0).Uuid);
+                break;
+            case "archive-note":
+                ApplyNoteRoute(true, commit.Current.Match.GetValue(0).Uuid);
+                break;
+            default:
+                throw new InvalidOperationException("The committed Light Notes route is unknown.");
+        }
+        _navigationSelectAll = false;
+    }
+
+    private void ApplyNoteRoute(bool archived, Guid id)
+    {
+        if (ShowArchived.Value != archived)
+        {
+            var preservation = PersistCurrentForNavigationAsync();
+            SetCollectionState(archived);
+            _refreshTask = CompleteCollectionSwitchAsync(_refreshTask, preservation);
+        }
+        var selected = _allItems.Value.FirstOrDefault(item =>
+            item.Id == id && item.IsArchived == archived
+        );
+        if (selected is null)
+            throw new InvalidOperationException("The committed note route has no matching record.");
+        if (Selected.Value?.Id != selected.Id)
+            SelectRecord(selected);
+        RequestFocus(TitleFocus);
+    }
+
+    private static bool TryNoteId(NavigationSnapshot snapshot, out Guid id)
+    {
+        if (snapshot.DefinitionId.Value is "inbox-note" or "archive-note")
+        {
+            id = snapshot.Match.GetValue(0).Uuid;
+            return true;
+        }
+        id = default;
+        return false;
+    }
+
+    private static RouteReference CollectionReference(bool archived) =>
+        archived ? LightNotesRoutes.Archive() : LightNotesRoutes.Inbox();
+
+    private static RouteReference NoteReference(bool archived, Guid id) =>
+        archived ? LightNotesRoutes.ArchiveNote(id) : LightNotesRoutes.InboxNote(id);
 
     private Task Run(Func<Task> action, string status, string errorHeading = "Could not save")
     {
@@ -521,7 +641,6 @@ public sealed class NoteWorkspace : IAsyncDisposable
             DraftWriter.Restore(draft);
         SelectRecord((VisibleItems.Count == 0 ? null : VisibleItems[0]));
         RememberCollectionState();
-        _route.Value = NoteWorkspaceRoute.Collection;
         _ready.Value = true;
         _status.Value =
             Items.Value.Count == 0 ? "Your notes stay on this device" : "Saved on this device";
@@ -547,11 +666,8 @@ public sealed class NoteWorkspace : IAsyncDisposable
         var saved = await Store.SaveAsync(draft);
         _captureId = null;
         Capture.Text = "";
-        SetCollectionState(false);
         await RefreshAsync();
-        SelectRecord(saved);
-        _route.Value = NoteWorkspaceRoute.Editor;
-        RequestFocus(TitleFocus);
+        await NavigateAsync(LightNotesRoutes.InboxNote(saved.Id));
     }
 
     private void ObserveDraft()
@@ -679,8 +795,8 @@ public sealed class NoteWorkspace : IAsyncDisposable
         ReplaceRecord(changed);
         if (!wasActive)
             return;
-        SelectRecord(VisibleItems.Count == 0 ? null : VisibleItems[0]);
-        BackToCollection();
+        Selected.Value = changed;
+        await NavigateAsync(CollectionReference(ShowArchived.Value));
     }
 
     private Task ToggleArchiveAsync() => SetCollectionAsync(!ShowArchived.Value);

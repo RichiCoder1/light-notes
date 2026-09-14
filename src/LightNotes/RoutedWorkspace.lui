@@ -1,0 +1,20 @@
+namespace LightNotes;
+using Lucent.Core;
+
+style CollapsedRouteStateStyle {
+    Participation: ElementParticipation.Collapsed;
+    Width: 0;
+    Height: 0;
+    MainGrow: 0;
+}
+
+internal component RoutedWorkspaceShell() {
+    context RouteContext<WorkspaceRoute> route;
+    inject NoteWorkspace model;
+    <NavigationBoundary interaction={model.NavigationInteraction} label="Notes navigation">
+        <AppView model={model} />
+        <Layout style={CollapsedRouteStateStyle} name={"notes.route." + route.Definition.Id.Value}>
+            {LightNotesRouting.Child()}
+        </Layout>
+    </NavigationBoundary>
+}

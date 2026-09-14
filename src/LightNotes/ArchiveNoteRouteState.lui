@@ -1,0 +1,16 @@
+namespace LightNotes;
+using Lucent.Core;
+
+style CollapsedRouteStateStyle {
+    Participation: ElementParticipation.Collapsed;
+    Width: 0;
+    Height: 0;
+    MainGrow: 0;
+}
+
+internal component ArchiveNoteRouteState() {
+    context RouteContext<WorkspaceRoute> workspace;
+    context RouteContext<ArchiveRoute> collection;
+    context RouteContext<ArchiveNoteRoute> route;
+    <Layout style={CollapsedRouteStateStyle} name={"notes.route." + workspace.Definition.Id.Value + "." + collection.Definition.Id.Value + "." + route.Parameters.Id.ToString("D")} />
+}

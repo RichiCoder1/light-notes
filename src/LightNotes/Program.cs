@@ -56,7 +56,7 @@ internal static class Program
                     session.Composition.Input.FocusRecovery = FocusRecoveryPolicy.NearestAvailable;
                     var workspace = services.GetRequiredService<NoteWorkspace>();
                     _ = workspace.StartAsync();
-                    return Components.AppView(workspace);
+                    return LightNotesRouting.Root(workspace);
                 },
                 (services, cancellationToken) =>
                     services

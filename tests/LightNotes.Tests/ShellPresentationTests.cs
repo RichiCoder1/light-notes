@@ -41,7 +41,7 @@ public sealed partial class ShellPresentationTests
 
         model.Select(selectedId);
         fixture.Drain();
-        Assert.AreEqual(NoteWorkspaceRoute.Editor, model.Route.Value);
+        Assert.AreEqual("inbox-note", model.Navigation.Current!.DefinitionId.Value);
         Assert.IsTrue(model.ShowEditor && !model.ShowCollection);
         wide = Scenario(
             fixture,
@@ -59,7 +59,7 @@ public sealed partial class ShellPresentationTests
 
         model.BackToCollection();
         fixture.Drain();
-        Assert.AreEqual(NoteWorkspaceRoute.Collection, model.Route.Value);
+        Assert.AreEqual("inbox", model.Navigation.Current!.DefinitionId.Value);
         Assert.IsTrue(model.ShowCollection && !model.ShowEditor);
     }
 
@@ -398,18 +398,26 @@ public sealed partial class ShellPresentationTests
         using var composition = new Composition(fixture.Graph, "light-notes-shell-review");
         composition.ConfigureImages(new ImageCache(new SkiaImagePreparer()));
         var theme = new ThemeContext(composition.Root.Scope, LightNotesTheme.Create());
-        composition.Mount(composition.Root, theme, global::LightNotes.Components.AppView(model));
+        composition.Mount(composition.Root, theme, RoutedAppView(model));
         using var renderer = new SkiaSceneRenderer();
 
         var selectedId = model.Selected.Value!.Id;
         var titleSession = model.Title;
         var urlSession = model.Url;
         var bodySession = model.Body;
+        var bodyViewport = model.Body.Viewport;
         var searchSession = model.Search;
 
         model.Title.Text = "Responsive review draft";
         model.Url.Text = "https://example.com/responsive-review";
-        model.Body.Text = "Draft selection survives wide, medium, and compact layouts. 😀";
+        model.Body.Text = string.Join(
+            '\n',
+            Enumerable.Range(0, 40).Select(index =>
+                index == 0
+                    ? "Draft selection survives wide, medium, and compact layouts. 😀"
+                    : $"Draft continuation line {index}."
+            )
+        );
         model.Body.SetSelection(0, 5);
 
         var wide = Scenario(fixture, composition, renderer, model, "wide", 1180, 760, 1);
@@ -444,7 +452,6 @@ public sealed partial class ShellPresentationTests
             bodyText.Bounds.Y <= Bounds(wide, body).Y + 24,
             "The first note line must begin near the editor's top padding, not its vertical center."
         );
-
         var scrollAnchorLabel = NotePresentation.RowLabel(model.VisibleItems[4]);
         var scrollAnchor = Semantic(composition, scrollAnchorLabel, SemanticRole.ListItem);
         var initialScrollAnchorY = wide
@@ -478,6 +485,9 @@ public sealed partial class ShellPresentationTests
             1,
             export: false
         );
+        bodyViewport.Offset = new ScrollOffset(0, 48);
+        fixture.Drain();
+
         scrollAnchor = Semantic(composition, scrollAnchorLabel, SemanticRole.ListItem);
         var retainedScrollAnchorY = wide
             .Boxes.Single(box => box.Identity.ElementId == scrollAnchor.Identity.ElementId)
@@ -487,7 +497,13 @@ public sealed partial class ShellPresentationTests
             "Wheel input did not visibly scroll the review list."
         );
 
+        var resizeRouteEntry = model.Navigation.Current!.EntryId;
         var medium = Scenario(fixture, composition, renderer, model, "medium", 900, 760, 1);
+        Assert.AreEqual(
+            resizeRouteEntry,
+            model.Navigation.Current!.EntryId,
+            "A responsive resize churned the committed route."
+        );
         AssertBounds(medium, search, expectedWidth: 268, message: "medium collection width");
         AssertBounds(medium, navigation, maximumX: 80, message: "medium navigation rail");
         AssertPresent(medium, title, true, "medium editor");
@@ -647,6 +663,17 @@ public sealed partial class ShellPresentationTests
         );
         Assert.AreEqual(0, model.Body.Anchor, "Responsive layout lost body selection anchor.");
         Assert.AreEqual(5, model.Body.Caret, "Responsive layout lost body selection caret.");
+        Assert.IsTrue(model.Body.CanUndo, "Responsive layout lost body undo history.");
+        Assert.AreSame(
+            bodyViewport,
+            model.Body.Viewport,
+            "Responsive layout replaced the editor viewport."
+        );
+        Assert.AreEqual(
+            new ScrollOffset(0, 48),
+            model.Body.Viewport.Offset,
+            "Responsive layout reset the editor viewport offset."
+        );
         scrollAnchor = Semantic(composition, scrollAnchorLabel, SemanticRole.ListItem);
         Assert.AreEqual(
             retainedScrollAnchorY,
@@ -1618,6 +1645,34 @@ public sealed partial class ShellPresentationTests
         public Task OpenAsync(Uri uri, CancellationToken cancellationToken = default) =>
             throw new InvalidOperationException("Offscreen review must not open a browser.");
     }
+
+    private static ComponentRecipe RoutedAppView(NoteWorkspace model) =>
+        Context.Provide(
+            model.Navigation,
+            RouteOutlet.Create(
+                LightNotesRouting.Descriptors,
+                level =>
+                    level.Id.Value == "workspace"
+                        ? global::Lucent.Core.Components.NavigationBoundary(
+                            ComponentContent.Create([
+                                global::LightNotes.Components.AppView(model),
+                                global::Lucent.Core.Components.Layout(
+                                    ComponentContent.Create([LightNotesRouting.Child()]),
+                                    style: Style.Empty.Participation(
+                                        ElementParticipation.Collapsed
+                                    )
+                                ),
+                            ]),
+                            model.NavigationInteraction,
+                            "Notes navigation"
+                        )
+                        : throw new InvalidOperationException("Unexpected routed shell level."),
+                options: new RouteOutletOptions(
+                    model.PrepareNavigation,
+                    model.NavigationInteraction
+                )
+            )
+        );
 
     private sealed class Fixture : SynchronizationContext, IDisposable
     {
