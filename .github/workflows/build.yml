@@ -17,6 +17,9 @@ jobs:
           global-json-file: global.json
           cache: true
           cache-dependency-path: '**/packages.lock.json'
+      - name: C# formatting
+        shell: pwsh
+        run: ./tools/Verify-Formatting.ps1
       - name: Storage and workspace tests
         shell: pwsh
         env:
@@ -33,4 +36,4 @@ jobs:
         shell: pwsh
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: ./tools/Build.ps1 -Publish
+        run: ./tools/Build.ps1 -Publish -FormatCheck

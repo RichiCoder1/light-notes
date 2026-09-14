@@ -27,14 +27,14 @@ Lucent is consumed entirely through prerelease packages. The `.lui` SDK pin in `
 
 ```powershell
 ./tools/Test.ps1 -UpdateLock
-./tools/Build.ps1 -UpdateLock -Publish
+./tools/Build.ps1 -UpdateLock -Publish -FormatCheck
 dotnet restore ./tests/LightNotes.Desktop.Tests/LightNotes.Desktop.Tests.csproj --force-evaluate
 dotnet restore ./tools/LightNotes.Review/LightNotes.Review.csproj --force-evaluate
 ```
 
 Together these commands refresh the six maintained lock files under `src/LightNotes`, `src/LightNotes.Storage`, `tests/LightNotes.Tests`, `tests/LightNotes.Storage.Tests`, `tests/LightNotes.Desktop.Tests`, and `tools/LightNotes.Review`. Review all six and commit both pins with every changed lock file. `-UpdateLock` temporarily uses a fresh NuGet HTTP cache so the SDK resolver sees a newly published SDK version; normal builds retain the usual cache. Vendored Lucent fixtures are not part of the Light Notes package upgrade.
 
-The app references the optional `Lucent.Icons.Lucide` package and its typed artwork accessors. The pinned `0.3.0-dev.60.1` package set contains that package; the generated application icon, published notices, managed suites, and NativeAOT publish are covered by the package validation checks below.
+The app references the optional `Lucent.Icons.Lucide` package and its typed artwork accessors. The generated application icon, published notices, managed suites, and NativeAOT publish are covered by the package validation checks below.
 
 For framework work, pack a unique local version using Lucent's [package instructions](https://github.com/RichiCoder1/lucent/blob/bab7cc3523aeeab8d9bce42f0aca5b2955fb1387/docs/PACKAGES.md), point the `lucent` source in NuGet.config at that local folder, and update both pins. Restore needs no prebuilt Lucent checkout DLLs or hidden Debug outputs. Keep local feed paths out of commits.
 
@@ -63,6 +63,8 @@ The Backup button creates a consistent SQLite copy under the data directory's `B
 Use new destination filenames for export/backup and a new directory for restoration. The restore command validates the backup and creates `notes.db` there; it does not open or replace the default live database. Set `LIGHT_NOTES_DATA_DIRECTORY` to the restored directory to review it. Schema migration, format and recovery details are documented in [STORAGE.md](docs/STORAGE.md). Keep the original database and its associated files intact when recovering; restore a backup into a separate data directory first. There is no automatic cloud sync or import merge.
 
 ## Tests
+
+Run `./tools/Verify-Formatting.ps1` to check every tracked C# file with the repository-pinned CSharpier version. `./tools/Build.ps1 -FormatCheck` also asks the Lucent SDK to check every tracked app `.lui` file; the script fails if a tracked `.lui` file moves outside `src/LightNotes`, so new files cannot silently miss the check. CI runs both checks.
 
 Run `./tools/Test.ps1` for temporary-database, workspace and real `.lui` shell geometry/state contracts. After changing package dependencies, use `-UpdateLock` once, then commit the lock files. `./tools/Build.ps1 -Publish` produces the NativeAOT application. Published desktop interaction tests run separately in an interactive Windows session.
 
