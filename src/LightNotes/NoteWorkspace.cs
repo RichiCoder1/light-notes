@@ -43,8 +43,7 @@ public sealed class NoteWorkspace : IAsyncDisposable
             linkOpener,
             autosave,
             async path => new NoteWorkspaceStorage(await NoteStore.OpenAsync(path))
-        )
-    { }
+        ) { }
 
     internal NoteWorkspace(
         ReactiveScope owner,
@@ -160,15 +159,10 @@ public sealed class NoteWorkspace : IAsyncDisposable
                 BackToCollection();
                 return Task.CompletedTask;
             },
-            () =>
-                CanEdit
-                && ShowEditor
-                && !Breakpoints.IsActive(LightNotesBreakpoints.Medium),
+            () => CanEdit && ShowEditor && !Breakpoints.IsActive(LightNotesBreakpoints.Medium),
             "back-to-collection"
         );
-        CaptureBindings = new([
-            new(CaptureCommand, new(Key.Enter, KeyModifiers.None)),
-        ]);
+        CaptureBindings = new([new(CaptureCommand, new(Key.Enter, KeyModifiers.None))]);
         Bindings = new([
             new(FocusCaptureCommand, KeyChord.Ctrl(Key.N)),
             new(FocusSearchCommand, KeyChord.Ctrl(Key.F)),
@@ -279,7 +273,8 @@ public sealed class NoteWorkspace : IAsyncDisposable
 
     /// <summary>Gets the committed route state that responsive styles use to choose the visible workspace pane.</summary>
     public bool ShowCollection => Navigation.Current?.DefinitionId.Value is "inbox" or "archive";
-    public bool ShowEditor => Navigation.Current?.DefinitionId.Value is "inbox-note" or "archive-note";
+    public bool ShowEditor =>
+        Navigation.Current?.DefinitionId.Value is "inbox-note" or "archive-note";
     public bool IsFiltering => !string.IsNullOrWhiteSpace(Search.Text);
     public bool HasItems => VisibleItems.Count != 0;
     public bool HasSearchResults => HasItems;
@@ -303,7 +298,11 @@ public sealed class NoteWorkspace : IAsyncDisposable
             RequestFocus(SearchFocus, selectAll);
             return;
         }
-        RequestNavigation(CollectionReference(ShowArchived.Value), "Opening collection...", selectAll);
+        RequestNavigation(
+            CollectionReference(ShowArchived.Value),
+            "Opening collection...",
+            selectAll
+        );
     }
 
     private void RequestFocus(FocusTarget target, bool selectAll = false)
@@ -464,11 +463,7 @@ public sealed class NoteWorkspace : IAsyncDisposable
         )
             return NavigationPreparationResult.Allow;
         var targetArchived = request.Target.DefinitionId.Value == "archive-note";
-        if (
-            !_allItems.Value.Any(item =>
-                item.Id == targetId && item.IsArchived == targetArchived
-            )
-        )
+        if (!_allItems.Value.Any(item => item.Id == targetId && item.IsArchived == targetArchived))
             return NavigationPreparationResult.RejectedActivation();
         if (Selected.Value?.Id == targetId)
             return NavigationPreparationResult.Allow;
@@ -488,11 +483,8 @@ public sealed class NoteWorkspace : IAsyncDisposable
         }
     }
 
-    private void RequestNavigation(
-        RouteReference target,
-        string status,
-        bool selectAll = false
-    ) => _ = Run(() => NavigateAsync(target, selectAll), status);
+    private void RequestNavigation(RouteReference target, string status, bool selectAll = false) =>
+        _ = Run(() => NavigateAsync(target, selectAll), status);
 
     private async Task NavigateAsync(RouteReference target, bool selectAll = false)
     {

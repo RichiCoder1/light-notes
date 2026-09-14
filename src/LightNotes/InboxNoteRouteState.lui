@@ -12,5 +12,13 @@ internal component InboxNoteRouteState() {
     context RouteContext<WorkspaceRoute> workspace;
     context RouteContext<InboxRoute> collection;
     context RouteContext<InboxNoteRoute> route;
-    <Layout style={CollapsedRouteStateStyle} name={"notes.route." + workspace.Definition.Id.Value + "." + collection.Definition.Id.Value + "." + route.Parameters.Id.ToString("D")} />
+
+    <Layout
+        style={CollapsedRouteStateStyle}
+        name={
+            "notes.route." + workspace.Definition.Id.Value + "." + collection.Definition.Id.Value
+                + "."
+                + route.Parameters.Id.ToString("D")
+        }
+    />
 }

@@ -119,11 +119,11 @@ public sealed partial class PublishedPersistenceTests
                     using var capture = Capture.Rectangle(rectangle);
                     ulong signature = 14695981039346656037;
                     for (var y = 0; y < capture.Bitmap.Height; y++)
-                        for (var x = 0; x < capture.Bitmap.Width; x++)
-                            signature = unchecked(
-                                (signature ^ (uint)capture.Bitmap.GetPixel(x, y).ToArgb())
-                                * 1099511628211
-                            );
+                    for (var x = 0; x < capture.Bitmap.Width; x++)
+                        signature = unchecked(
+                            (signature ^ (uint)capture.Bitmap.GetPixel(x, y).ToArgb())
+                            * 1099511628211
+                        );
                     if (signatures.Add(signature))
                         capture.ToFile(Path.Combine(output, $"caret-phase-{signatures.Count}.png"));
                     Thread.Sleep(100);

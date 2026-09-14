@@ -11,6 +11,7 @@ style CollapsedRouteStateStyle {
 internal component RoutedWorkspaceShell() {
     context RouteContext<WorkspaceRoute> route;
     inject NoteWorkspace model;
+
     <NavigationBoundary interaction={model.NavigationInteraction} label="Notes navigation">
         <AppView model={model} />
         <Layout style={CollapsedRouteStateStyle} name={"notes.route." + route.Definition.Id.Value}>

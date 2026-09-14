@@ -1,4 +1,5 @@
 namespace LightNotes;
+
 style CaptureBarStyle(WindowBreakpoints breakpoints) {
     Background: LightNotesTheme.Canvas;
     Axis: LayoutAxis.Row;
@@ -71,9 +72,22 @@ public component CaptureBar(NoteWorkspace model) {
     <Layout style={CaptureBarStyle(model.Breakpoints)} name="notes.capture-bar">
         <Layout style={CaptureFieldCommandHostStyle}>
             <CommandScope bindings={model.CaptureBindings}>
-                <TextField session={model.Capture} focusTarget={model.CaptureFocus} label="Capture a link or thought" style={CaptureFieldStyle with { Enabled: model.CanEdit; }} name="notes.capture" />
+                <TextField
+                    session={model.Capture}
+                    focusTarget={model.CaptureFocus}
+                    label="Capture a link or thought"
+                    style={CaptureFieldStyle with { Enabled: model.CanEdit; }}
+                    name="notes.capture"
+                />
             </CommandScope>
         </Layout>
-        <Button leadingIcon={Lucent.Icons.Lucide.LucideIcons.Plus} onInvoke={() => model.CaptureCommand.TryExecute()} style={PrimaryActionStyle with { Enabled: model.CaptureCommand.IsEnabled; }} name="notes.capture-action">Add</Button>
+        <Button
+            leadingIcon={Lucent.Icons.Lucide.LucideIcons.Plus}
+            onInvoke={() => model.CaptureCommand.TryExecute()}
+            style={PrimaryActionStyle with { Enabled: model.CaptureCommand.IsEnabled; }}
+            name="notes.capture-action"
+        >
+            Add
+        </Button>
     </Layout>
 }

@@ -1,4 +1,5 @@
 namespace LightNotes;
+
 style NavigationStyle(WindowBreakpoints breakpoints) {
     Axis: LayoutAxis.Column;
     Background: LightNotesTheme.Navigation;
@@ -145,19 +146,62 @@ style NavigationItemTextStyle(WindowBreakpoints breakpoints) {
 public component Navigation(NoteWorkspace model) {
     <Layout style={NavigationStyle(model.Breakpoints)} name="notes.navigation">
         <Layout style={NavigationBrandStyle(model.Breakpoints)} name="notes.navigation-brand">
-            <Icon source={Lucent.Icons.Lucide.LucideIcons.NotebookPen} style={NavigationBrandIconStyle} />
+            <Icon
+                source={Lucent.Icons.Lucide.LucideIcons.NotebookPen}
+                style={NavigationBrandIconStyle}
+            />
             <Text style={NavigationBrandTextStyle}>Light Notes</Text>
         </Layout>
-        <Selectable label={() => model.Breakpoints.IsActive(LightNotesBreakpoints.Wide) ? "Inbox  " + model.InboxCount : "Inbox"} selected={() => !model.ShowArchived.Value} onSelect={() => model.ShowInbox()} style={NavigationItemStyle(model.Breakpoints)} name="notes.navigation-inbox">
+        <Selectable
+            label={
+                () => model.Breakpoints.IsActive(LightNotesBreakpoints.Wide)
+                    ? "Inbox  " + model.InboxCount
+                    : "Inbox"
+            }
+            selected={() => !model.ShowArchived.Value}
+            onSelect={() => model.ShowInbox()}
+            style={NavigationItemStyle(model.Breakpoints)}
+            name="notes.navigation-inbox"
+        >
             <Layout style={NavigationItemContentStyle(model.Breakpoints)}>
-                <Icon source={Lucent.Icons.Lucide.LucideIcons.Inbox} style={NavigationItemIconStyle} />
-                <Text content={() => model.Breakpoints.IsActive(LightNotesBreakpoints.Wide) ? "Inbox  " + model.InboxCount : "Inbox"} style={NavigationItemTextStyle(model.Breakpoints)} />
+                <Icon
+                    source={Lucent.Icons.Lucide.LucideIcons.Inbox}
+                    style={NavigationItemIconStyle}
+                />
+                <Text
+                    content={
+                        () => model.Breakpoints.IsActive(LightNotesBreakpoints.Wide)
+                            ? "Inbox  " + model.InboxCount
+                            : "Inbox"
+                    }
+                    style={NavigationItemTextStyle(model.Breakpoints)}
+                />
             </Layout>
         </Selectable>
-        <Selectable label={() => model.Breakpoints.IsActive(LightNotesBreakpoints.Wide) ? "Archive  " + model.ArchiveCount : "Archive"} selected={() => model.ShowArchived.Value} onSelect={() => model.ShowArchive()} style={NavigationItemStyle(model.Breakpoints)} name="notes.navigation-archive">
+        <Selectable
+            label={
+                () => model.Breakpoints.IsActive(LightNotesBreakpoints.Wide)
+                    ? "Archive  " + model.ArchiveCount
+                    : "Archive"
+            }
+            selected={() => model.ShowArchived.Value}
+            onSelect={() => model.ShowArchive()}
+            style={NavigationItemStyle(model.Breakpoints)}
+            name="notes.navigation-archive"
+        >
             <Layout style={NavigationItemContentStyle(model.Breakpoints)}>
-                <Icon source={Lucent.Icons.Lucide.LucideIcons.Archive} style={NavigationItemIconStyle} />
-                <Text content={() => model.Breakpoints.IsActive(LightNotesBreakpoints.Wide) ? "Archive  " + model.ArchiveCount : "Archive"} style={NavigationItemTextStyle(model.Breakpoints)} />
+                <Icon
+                    source={Lucent.Icons.Lucide.LucideIcons.Archive}
+                    style={NavigationItemIconStyle}
+                />
+                <Text
+                    content={
+                        () => model.Breakpoints.IsActive(LightNotesBreakpoints.Wide)
+                            ? "Archive  " + model.ArchiveCount
+                            : "Archive"
+                    }
+                    style={NavigationItemTextStyle(model.Breakpoints)}
+                />
             </Layout>
         </Selectable>
         <Layout style={NavigationSpacerStyle} />

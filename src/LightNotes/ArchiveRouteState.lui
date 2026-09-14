@@ -11,7 +11,11 @@ style CollapsedRouteStateStyle {
 internal component ArchiveRouteState() {
     context RouteContext<WorkspaceRoute> workspace;
     context RouteContext<ArchiveRoute> route;
-    <Layout style={CollapsedRouteStateStyle} name={"notes.route." + workspace.Definition.Id.Value + "." + route.Definition.Id.Value}>
+
+    <Layout
+        style={CollapsedRouteStateStyle}
+        name={"notes.route." + workspace.Definition.Id.Value + "." + route.Definition.Id.Value}
+    >
         {LightNotesRouting.Child()}
     </Layout>
 }

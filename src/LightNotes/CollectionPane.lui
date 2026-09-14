@@ -1,4 +1,5 @@
 namespace LightNotes;
+
 style CollectionPaneStyle(WindowBreakpoints breakpoints, NoteWorkspace model) {
     Axis: LayoutAxis.Column;
     CrossAlignment: LayoutAlignment.Stretch;
@@ -12,7 +13,8 @@ style CollectionPaneStyle(WindowBreakpoints breakpoints, NoteWorkspace model) {
     Spacing: 14;
     Border: LightNotesTheme.DividerRight;
 
-    when (!breakpoints.IsActive(LightNotesBreakpoints.Wide) && breakpoints.IsActive(LightNotesBreakpoints.Medium)) {
+    when (!breakpoints.IsActive(LightNotesBreakpoints.Wide)
+        && breakpoints.IsActive(LightNotesBreakpoints.Medium)) {
         Width: 300;
     }
 
@@ -172,22 +174,67 @@ style CollectionListStyle(NoteWorkspace model) {
 public component CollectionPane(NoteWorkspace model) {
     bool hasQuery = model.Search.Text.Length != 0;
     void ClearSearch() => model.Search.Text = string.Empty;
+
     <Layout style={CollectionPaneStyle(model.Breakpoints, model)} name="notes.collection">
         <Layout style={CollectionHeaderStyle} name="notes.collection-header">
-            <Text content={() => model.ShowArchived.Value ? "Archive" : "Inbox"} style={CollectionTitleStyle} name="notes.collection-title" />
-            <Text content={() => NotePresentation.CollectionCount(model)} style={CollectionCountStyle(model.Breakpoints)} name="notes.collection-count" />
-            <Button leadingIcon={Lucent.Icons.Lucide.LucideIcons.Inbox} onInvoke={() => model.ShowInbox()} style={CompactInboxStyle(model.Breakpoints, model)} name="notes.compact-inbox">Inbox</Button>
-            <Button leadingIcon={Lucent.Icons.Lucide.LucideIcons.Archive} onInvoke={() => model.ShowArchive()} style={CompactArchiveStyle(model.Breakpoints, model)} name="notes.compact-archive">Archive</Button>
+            <Text
+                content={() => model.ShowArchived.Value ? "Archive" : "Inbox"}
+                style={CollectionTitleStyle}
+                name="notes.collection-title"
+            />
+            <Text
+                content={() => NotePresentation.CollectionCount(model)}
+                style={CollectionCountStyle(model.Breakpoints)}
+                name="notes.collection-count"
+            />
+            <Button
+                leadingIcon={Lucent.Icons.Lucide.LucideIcons.Inbox}
+                onInvoke={() => model.ShowInbox()}
+                style={CompactInboxStyle(model.Breakpoints, model)}
+                name="notes.compact-inbox"
+            >
+                Inbox
+            </Button>
+            <Button
+                leadingIcon={Lucent.Icons.Lucide.LucideIcons.Archive}
+                onInvoke={() => model.ShowArchive()}
+                style={CompactArchiveStyle(model.Breakpoints, model)}
+                name="notes.compact-archive"
+            >
+                Archive
+            </Button>
         </Layout>
-        <TextField session={model.Search} focusTarget={model.SearchFocus} label="Search saved items" style={SearchFieldStyle with { Enabled: model.CanSearch; }} name="notes.search" />
+        <TextField
+            session={model.Search}
+            focusTarget={model.SearchFocus}
+            label="Search saved items"
+            style={SearchFieldStyle with { Enabled: model.CanSearch; }}
+            name="notes.search"
+        />
         if (hasQuery) {
             <Layout style={SearchActionsStyle} name="notes.search-actions">
-                <Button leadingIcon={Lucent.Icons.Lucide.LucideIcons.ListFilter} onInvoke={ClearSearch} style={ClearSearchStyle} name="notes.clear-search">Clear search</Button>
+                <Button
+                    leadingIcon={Lucent.Icons.Lucide.LucideIcons.ListFilter}
+                    onInvoke={ClearSearch}
+                    style={ClearSearchStyle}
+                    name="notes.clear-search"
+                >
+                    Clear search
+                </Button>
             </Layout>
         }
         <CollectionLoading model={model} />
         <CollectionError model={model} />
         <CollectionEmpty model={model} clearSearch={ClearSearch} />
-        <VirtualizedList source={() => model.VisibleItems} key={item => item.Id} row={item => NoteRow(model, () => item.Value)} rowHeight={() => 72f} label="Saved notes" viewport={model.CollectionViewport} style={CollectionListStyle(model)} name="notes.list" />
+        <VirtualizedList
+            source={() => model.VisibleItems}
+            key={item => item.Id}
+            row={item => NoteRow(model, () => item.Value)}
+            rowHeight={() => 72f}
+            label="Saved notes"
+            viewport={model.CollectionViewport}
+            style={CollectionListStyle(model)}
+            name="notes.list"
+        />
     </Layout>
 }

@@ -26,7 +26,14 @@ style LoadingRowStyle {
 }
 
 public component CollectionLoading(NoteWorkspace model) {
-    <Layout style={LoadingPanelStyle with { Participation: !model.IsReady && !model.HasError ? ElementParticipation.Visible : ElementParticipation.Collapsed; }} name="notes.collection-loading">
+    <Layout
+        style={LoadingPanelStyle with {
+            Participation: !model.IsReady && !model.HasError
+                ? ElementParticipation.Visible
+                : ElementParticipation.Collapsed;
+        }}
+        name="notes.collection-loading"
+    >
         <Text style={LoadingHeadingStyle}>Opening your notes…</Text>
         <Text style={LoadingRowStyle}>Loading saved items</Text>
         <Text style={LoadingRowStyle}>Preparing your inbox</Text>

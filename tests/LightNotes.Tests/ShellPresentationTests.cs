@@ -412,11 +412,13 @@ public sealed partial class ShellPresentationTests
         model.Url.Text = "https://example.com/responsive-review";
         model.Body.Text = string.Join(
             '\n',
-            Enumerable.Range(0, 40).Select(index =>
-                index == 0
-                    ? "Draft selection survives wide, medium, and compact layouts. 😀"
-                    : $"Draft continuation line {index}."
-            )
+            Enumerable
+                .Range(0, 40)
+                .Select(index =>
+                    index == 0
+                        ? "Draft selection survives wide, medium, and compact layouts. 😀"
+                        : $"Draft continuation line {index}."
+                )
         );
         model.Body.SetSelection(0, 5);
 
@@ -1658,9 +1660,7 @@ public sealed partial class ShellPresentationTests
                                 global::LightNotes.Components.AppView(model),
                                 global::Lucent.Core.Components.Layout(
                                     ComponentContent.Create([LightNotesRouting.Child()]),
-                                    style: Style.Empty.Participation(
-                                        ElementParticipation.Collapsed
-                                    )
+                                    style: Style.Empty.Participation(ElementParticipation.Collapsed)
                                 ),
                             ]),
                             model.NavigationInteraction,

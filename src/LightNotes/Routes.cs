@@ -11,13 +11,23 @@ internal readonly record struct WorkspaceRoute();
 [LucentRoute(typeof(LightNotesRoutes), "/inbox", Id = "inbox", Parent = typeof(WorkspaceRoute))]
 internal readonly record struct InboxRoute();
 
-[LucentRoute(typeof(LightNotesRoutes), "/inbox/{id}", Id = "inbox-note", Parent = typeof(InboxRoute))]
+[LucentRoute(
+    typeof(LightNotesRoutes),
+    "/inbox/{id}",
+    Id = "inbox-note",
+    Parent = typeof(InboxRoute)
+)]
 internal readonly record struct InboxNoteRoute(Guid Id);
 
 [LucentRoute(typeof(LightNotesRoutes), "/archive", Id = "archive", Parent = typeof(WorkspaceRoute))]
 internal readonly record struct ArchiveRoute();
 
-[LucentRoute(typeof(LightNotesRoutes), "/archive/{id}", Id = "archive-note", Parent = typeof(ArchiveRoute))]
+[LucentRoute(
+    typeof(LightNotesRoutes),
+    "/archive/{id}",
+    Id = "archive-note",
+    Parent = typeof(ArchiveRoute)
+)]
 internal readonly record struct ArchiveNoteRoute(Guid Id);
 
 internal static class LightNotesRouting

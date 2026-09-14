@@ -1,4 +1,5 @@
 namespace LightNotes;
+
 style ShellStyle {
     Axis: LayoutAxis.Column;
     CrossAlignment: LayoutAlignment.Stretch;

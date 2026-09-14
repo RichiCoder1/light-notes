@@ -1,4 +1,5 @@
 namespace LightNotes;
+
 style EmptyCollectionPanelStyle {
     Axis: LayoutAxis.Column;
     MainGrow: 1;
@@ -48,12 +49,40 @@ style EmptyCollectionIconStyle {
 }
 
 public component CollectionEmpty(NoteWorkspace model, Action clearSearch) {
-    <Layout style={EmptyCollectionPanelStyle with { Participation: model.IsReady && model.VisibleItems.Count == 0 ? ElementParticipation.Visible : ElementParticipation.Collapsed; }} name="notes.collection-empty">
-        <Icon source={Lucent.Icons.Lucide.LucideIcons.Search} style={EmptyCollectionIconStyle with { Participation: model.Search.Text.Length != 0 ? ElementParticipation.Visible : ElementParticipation.Collapsed; }} />
-        <Text content={() => NotePresentation.EmptyHeading(model)} style={EmptyCollectionHeadingStyle} name="notes.collection-empty-title" />
-        <Text content={() => NotePresentation.EmptyGuidance(model)} style={EmptyCollectionBodyStyle} name="notes.collection-empty-guidance" />
+    <Layout
+        style={EmptyCollectionPanelStyle with {
+            Participation: model.IsReady && model.VisibleItems.Count == 0
+                ? ElementParticipation.Visible
+                : ElementParticipation.Collapsed;
+        }}
+        name="notes.collection-empty"
+    >
+        <Icon
+            source={Lucent.Icons.Lucide.LucideIcons.Search}
+            style={EmptyCollectionIconStyle with {
+                Participation: model.Search.Text.Length != 0
+                    ? ElementParticipation.Visible
+                    : ElementParticipation.Collapsed;
+            }}
+        />
+        <Text
+            content={() => NotePresentation.EmptyHeading(model)}
+            style={EmptyCollectionHeadingStyle}
+            name="notes.collection-empty-title"
+        />
+        <Text
+            content={() => NotePresentation.EmptyGuidance(model)}
+            style={EmptyCollectionBodyStyle}
+            name="notes.collection-empty-guidance"
+        />
         if (model.Search.Text.Length != 0) {
-            <Button onInvoke={clearSearch} style={EmptyCollectionActionStyle} name="notes.collection-empty-clear">Clear search</Button>
+            <Button
+                onInvoke={clearSearch}
+                style={EmptyCollectionActionStyle}
+                name="notes.collection-empty-clear"
+            >
+                Clear search
+            </Button>
         }
     </Layout>
 }

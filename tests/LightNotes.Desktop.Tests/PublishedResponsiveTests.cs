@@ -102,8 +102,11 @@ public sealed partial class PublishedPersistenceTests
                 Assert.IsTrue(TryReadValue(root, "Web address", out url));
                 Assert.AreEqual("https://example.com/responsive-review", url);
                 Assert.IsTrue(
-                    FindByName(root, ControlType.Edit, "Web address")
-                        .Properties.HasKeyboardFocus.Value,
+                    FindByName(
+                        root,
+                        ControlType.Edit,
+                        "Web address"
+                    ).Properties.HasKeyboardFocus.Value,
                     "Returning wide moved focus away from the Web address field."
                 );
                 ResizeClient(process, handle, 560, 640);

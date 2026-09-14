@@ -1,4 +1,5 @@
 namespace LightNotes;
+
 style CollectionErrorPanelStyle {
     Axis: LayoutAxis.Column;
     CrossAlignment: LayoutAlignment.Stretch;
@@ -46,9 +47,30 @@ style CollectionErrorActionStyle {
 }
 
 public component CollectionError(NoteWorkspace model) {
-    <Layout style={CollectionErrorPanelStyle with { Participation: model.HasError && (!model.IsReady || model.Selected.Value is null) ? ElementParticipation.Visible : ElementParticipation.Collapsed; }} name="notes.collection-error">
-        <Text content={() => model.IsReady ? model.ErrorHeading : "Couldn't open your notes"} style={CollectionErrorHeadingStyle} name="notes.collection-error-heading" />
-        <Text content={() => model.ErrorMessage ?? "The local notes store is unavailable."} style={CollectionErrorBodyStyle} name="notes.collection-error-detail" />
-        <Button onInvoke={() => model.RetryCommand.TryExecute()} style={CollectionErrorActionStyle with { Enabled: model.RetryCommand.IsEnabled; }} name="notes.collection-retry">Retry</Button>
+    <Layout
+        style={CollectionErrorPanelStyle with {
+            Participation: model.HasError && (!model.IsReady || model.Selected.Value is null)
+                ? ElementParticipation.Visible
+                : ElementParticipation.Collapsed;
+        }}
+        name="notes.collection-error"
+    >
+        <Text
+            content={() => model.IsReady ? model.ErrorHeading : "Couldn't open your notes"}
+            style={CollectionErrorHeadingStyle}
+            name="notes.collection-error-heading"
+        />
+        <Text
+            content={() => model.ErrorMessage ?? "The local notes store is unavailable."}
+            style={CollectionErrorBodyStyle}
+            name="notes.collection-error-detail"
+        />
+        <Button
+            onInvoke={() => model.RetryCommand.TryExecute()}
+            style={CollectionErrorActionStyle with { Enabled: model.RetryCommand.IsEnabled; }}
+            name="notes.collection-retry"
+        >
+            Retry
+        </Button>
     </Layout>
 }

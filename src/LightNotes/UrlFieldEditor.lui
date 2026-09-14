@@ -1,4 +1,5 @@
 namespace LightNotes;
+
 style UrlLeadingIconStyle {
     Width: 16;
     Height: 16;
@@ -41,7 +42,19 @@ internal component UrlFieldEditor(
 ) {
     <Layout style={UrlActionsStyle} name="notes.url-actions">
         <Icon source={Lucent.Icons.Lucide.LucideIcons.Link} style={UrlLeadingIconStyle} />
-        <TextField field={field} session={model.Url} style={UrlFieldStyle with { Enabled: model.CanEdit; }} name="notes.url" />
-        <Button leadingIcon={Lucent.Icons.Lucide.LucideIcons.ArrowRight} onInvoke={() => model.OpenLinkCommand.TryExecute()} style={actionStyle with { Enabled: model.OpenLinkCommand.IsEnabled; }} name="notes.open-link">Open</Button>
+        <TextField
+            field={field}
+            session={model.Url}
+            style={UrlFieldStyle with { Enabled: model.CanEdit; }}
+            name="notes.url"
+        />
+        <Button
+            leadingIcon={Lucent.Icons.Lucide.LucideIcons.ArrowRight}
+            onInvoke={() => model.OpenLinkCommand.TryExecute()}
+            style={actionStyle with { Enabled: model.OpenLinkCommand.IsEnabled; }}
+            name="notes.open-link"
+        >
+            Open
+        </Button>
     </Layout>
 }
