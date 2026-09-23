@@ -32,40 +32,35 @@ internal readonly record struct ArchiveNoteRoute(Guid Id);
 
 internal static class LightNotesRouting
 {
-    internal static RouteTable Table { get; } = RouteTable.Create(LightNotesRoutes.Module.Patterns);
+    internal static RouteBundle Bundle { get; } =
+        RouteBundle.Create([LightNotesRoutes.Module], Destination);
 
-    internal static RouteDescriptorSet Descriptors { get; } =
-        RouteDescriptorSet.Create(Table, [LightNotesRoutes.Module]);
+    internal static RouteTable Table => Bundle.Table;
 
     internal static ComponentRecipe Root(NoteWorkspace workspace) =>
-        Context.Provide(
-            workspace.Navigation,
-            RouteOutlet.Create(
-                Descriptors,
-                static level =>
-                    level.Id.Value switch
-                    {
-                        "workspace" => Components.RoutedWorkspaceShell(),
-                        _ => throw new InvalidOperationException("Unknown root route."),
-                    },
-                options: new RouteOutletOptions(
-                    workspace.PrepareNavigation,
-                    workspace.NavigationInteraction
-                )
-            )
+        Lucent.Core.Components.Router(
+            [
+                Lucent.Core.Components.RouterOutlet(
+                    options: new RouteOutletOptions(
+                        workspace.PrepareNavigation,
+                        workspace.NavigationInteraction
+                    )
+                ),
+            ],
+            Bundle,
+            session: workspace.Navigation
         );
 
-    internal static ComponentRecipe Child() =>
-        RouteOutlet.CreateChild(
-            Descriptors,
-            static level =>
-                level.Id.Value switch
-                {
-                    "inbox" => Components.InboxRouteState(),
-                    "inbox-note" => Components.InboxNoteRouteState(),
-                    "archive" => Components.ArchiveRouteState(),
-                    "archive-note" => Components.ArchiveNoteRouteState(),
-                    _ => throw new InvalidOperationException("Unknown child route."),
-                }
-        );
+    internal static ComponentRecipe Child() => Lucent.Core.Components.RouterOutlet();
+
+    internal static RouteDestination Destination(RouteLevelDescriptor level) =>
+        level.Id.Value switch
+        {
+            "workspace" => new(typeof(WorkspaceRoute), Components.RoutedWorkspaceShell()),
+            "inbox" => new(typeof(InboxRoute), Components.InboxRouteState()),
+            "inbox-note" => new(typeof(InboxNoteRoute), Components.InboxNoteRouteState()),
+            "archive" => new(typeof(ArchiveRoute), Components.ArchiveRouteState()),
+            "archive-note" => new(typeof(ArchiveNoteRoute), Components.ArchiveNoteRouteState()),
+            _ => throw new InvalidOperationException("Unknown Light Notes route."),
+        };
 }

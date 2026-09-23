@@ -965,14 +965,15 @@ public sealed class WorkspaceTests
         }
     }
 
-    private static ComponentRecipe RoutedState(NoteWorkspace model) =>
-        Context.Provide(
-            model.Navigation,
-            RouteOutlet.Create(
-                LightNotesRouting.Descriptors,
-                level =>
-                    level.Id.Value == "workspace"
-                        ? ComponentRecipe.Create(
+    private static ComponentRecipe RoutedState(NoteWorkspace model)
+    {
+        var routes = RouteBundle.Create(
+            LightNotesRouting.Bundle.Descriptors,
+            level =>
+                level.Id.Value == "workspace"
+                    ? new RouteDestination(
+                        typeof(WorkspaceTests),
+                        ComponentRecipe.Create(
                             "workspace-test-route",
                             (context, root) =>
                             {
@@ -984,11 +985,21 @@ public sealed class WorkspaceTests
                                 );
                                 context.Mount(root, LightNotesRouting.Child());
                             }
-                        )
-                        : throw new InvalidOperationException("Unexpected test root route."),
-                options: new RouteOutletOptions(model.PrepareNavigation)
-            )
+                        ),
+                        "workspace-test"
+                    )
+                    : LightNotesRouting.Destination(level)
         );
+        return global::Lucent.Core.Components.Router(
+            [
+                global::Lucent.Core.Components.RouterOutlet(
+                    options: new RouteOutletOptions(model.PrepareNavigation)
+                ),
+            ],
+            routes,
+            session: model.Navigation
+        );
+    }
 
     private sealed class Fixture : SynchronizationContext, IDisposable
     {

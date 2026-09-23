@@ -1648,14 +1648,15 @@ public sealed partial class ShellPresentationTests
             throw new InvalidOperationException("Offscreen review must not open a browser.");
     }
 
-    private static ComponentRecipe RoutedAppView(NoteWorkspace model) =>
-        Context.Provide(
-            model.Navigation,
-            RouteOutlet.Create(
-                LightNotesRouting.Descriptors,
-                level =>
-                    level.Id.Value == "workspace"
-                        ? global::Lucent.Core.Components.NavigationBoundary(
+    private static ComponentRecipe RoutedAppView(NoteWorkspace model)
+    {
+        var routes = RouteBundle.Create(
+            LightNotesRouting.Bundle.Descriptors,
+            level =>
+                level.Id.Value == "workspace"
+                    ? new RouteDestination(
+                        typeof(ShellPresentationTests),
+                        global::Lucent.Core.Components.NavigationBoundary(
                             ComponentContent.Create([
                                 global::LightNotes.Components.AppView(model),
                                 global::Lucent.Core.Components.Layout(
@@ -1665,14 +1666,24 @@ public sealed partial class ShellPresentationTests
                             ]),
                             model.NavigationInteraction,
                             "Notes navigation"
-                        )
-                        : throw new InvalidOperationException("Unexpected routed shell level."),
-                options: new RouteOutletOptions(
-                    model.PrepareNavigation,
-                    model.NavigationInteraction
-                )
-            )
+                        ),
+                        "workspace-test"
+                    )
+                    : LightNotesRouting.Destination(level)
         );
+        return global::Lucent.Core.Components.Router(
+            [
+                global::Lucent.Core.Components.RouterOutlet(
+                    options: new RouteOutletOptions(
+                        model.PrepareNavigation,
+                        model.NavigationInteraction
+                    )
+                ),
+            ],
+            routes,
+            session: model.Navigation
+        );
+    }
 
     private sealed class Fixture : SynchronizationContext, IDisposable
     {

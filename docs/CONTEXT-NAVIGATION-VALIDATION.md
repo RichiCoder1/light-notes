@@ -18,7 +18,22 @@ This boundary is deliberate for the proving migration: moving `AppView` beneath 
 | Provider lifetime and cleanup | Hosted package probe; `HostingTests.OfficialHostCreatesOneScopedModelAndReleasesUiBeforeServices`; `HostingTests.StartupFailureStillStopsAndDisposesTheOfficialHost`; `HostingTests.StopCompositionScopeAndHostFailuresAreAllPreserved` | Staged consumers share the scoped service, generated transient resolution occurs once per mounted suffix, UI-owned cleanup precedes provider disposal, async provider cleanup runs exactly once, and fatal cleanup preserves independent failures. |
 | Stable work and retained root | Hosted package probe; `MountRequirementContracts.MountShapesReportAllocationsAndStableWorkPerformsNoFurtherLookup` | Repeated drains, context dumps, semantic snapshots, and layout perform no additional service lookup. Measured leaf remounts retain the root and create exactly one new transient per suffix. |
 
-## Official package evidence
+## Official package evidence — September 23, 2026
+
+Validated Lucent version: `0.3.0-dev.86.1`, published from Lucent commit `6c4573b8b79550eb42d3351d4d43fe24062bdbe3` by successful workflow [35785516739](https://github.com/RichiCoder1/lucent/actions/runs/35785516739). Its managed, package-verification, and immutable-publish jobs all completed successfully.
+
+- Light Notes Release tests: 44 passed; the separate opt-in projection characterization was skipped.
+- Storage tests: 22 passed.
+- Published desktop smoke: 2 passed using temporary synthetic profiles. `PublishedResponsiveCollapseRehomesFocusWithoutReplayingIt` covered routed note selection and focus continuity across responsive branch changes. `PublishedInvalidDraftNavigatesReopensAndDiscardsWithoutChangingValidNote` covered Inbox/Archive navigation, draft recovery, reopen and discard. Forward has no exposed desktop command; the managed Back/Forward contract covers both journal directions.
+- Real Light Notes win-x64 NativeAOT publish: passed. `LightNotes.exe` SHA-256 is `A62AED3F74B08EA423F8EB45A82910278AB8AB075396E2789C388398219E44DF`.
+- Lucent package verification includes the hosted context/navigation package proof under managed and win-x64 NativeAOT execution.
+
+Retained evidence:
+
+- Official desktop TRX and captures: `artifacts/desktop/dev-86.1/`
+- Official NativeAOT app: `artifacts/publish/`
+
+## Earlier package evidence — 0.3.0-dev.76.1
 
 Validated Lucent version: `0.3.0-dev.76.1`, published from Lucent commit `b3f3d59c91352b89761b9aefde42ef1c149b6e77` by successful workflow [34822437908](https://github.com/RichiCoder1/lucent/actions/runs/34822437908). Its managed, package-verification, and immutable-publish jobs all completed successfully.
 
