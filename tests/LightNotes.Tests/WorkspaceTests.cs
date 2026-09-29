@@ -759,6 +759,65 @@ public sealed class WorkspaceTests
     }
 
     [TestMethod]
+    public void RefreshUpdatesCleanEditorContentTogetherWithItsRevision()
+    {
+        var original = ControlledStorage.Record("Original", "Original body");
+        var archived = ControlledStorage.Record("Archived", "Archived body") with
+        {
+            IsArchived = true,
+        };
+        var latest = original with { Title = "Other window", Body = "Other body", Revision = 2 };
+        var storage = new DelayedReloadStorage([original, archived], [latest, archived]);
+        using var fixture = new Fixture(storage);
+        var model = fixture.Model;
+        fixture.Pump(model.StartAsync());
+
+        model.ShowArchive();
+        model.ShowInbox();
+        Assert.AreEqual("Original body", model.Body.Text);
+        storage.CompleteReload();
+        fixture.Until(() => model.Selected.Value?.Revision == 2);
+
+        Assert.AreEqual("Other window", model.Title.Text);
+        Assert.AreEqual("Other body", model.Body.Text);
+        Assert.IsFalse(model.IsDirty);
+        Assert.IsFalse(fixture.Autosave.HasPending);
+    }
+
+    [TestMethod]
+    public void RefreshKeepsDirtyEditorRevisionUntilExplicitConflictResolution()
+    {
+        var original = ControlledStorage.Record("Original", "Original body");
+        var archived = ControlledStorage.Record("Archived", "Archived body") with
+        {
+            IsArchived = true,
+        };
+        var latest = original with { Title = "Other window", Body = "Other body", Revision = 2 };
+        var storage = new DelayedReloadStorage([original, archived], [latest, archived]);
+        using var fixture = new Fixture(storage);
+        var model = fixture.Model;
+        fixture.Pump(model.StartAsync());
+
+        model.ShowArchive();
+        model.ShowInbox();
+        model.Body.Text = "My edit while refresh is pending";
+        fixture.Drain();
+        storage.CompleteReload();
+        fixture.Until(() => model.Items.Value.Single().Revision == 2);
+
+        Assert.AreEqual("My edit while refresh is pending", model.Body.Text);
+        Assert.AreEqual(1, model.Selected.Value!.Revision);
+        fixture.Execute(model.SaveCommand);
+        Assert.AreEqual(1, storage.LastSave!.ExpectedRevision);
+        Assert.IsTrue(model.HasError);
+        StringAssert.Contains(model.StatusText, "changed on disk");
+        Assert.AreEqual(
+            "Other body",
+            storage.Persisted.Single(item => item.Id == original.Id).Body
+        );
+    }
+
+    [TestMethod]
     public void CollectionSwitchRestoresSelectionQueryAndScrollBeforeRefreshCompletes()
     {
         var inboxOne = ControlledStorage.Record("Inbox one", "one");
@@ -1165,15 +1224,35 @@ public sealed class WorkspaceTests
 
         public bool HasUnresolvedWriteFailures => false;
 
-        public void CompleteReload() => _reload.SetResult(reloaded);
+        public void CompleteReload() => _reload.SetResult(Persisted);
 
         public Task<IReadOnlyList<NoteRecord>> ListAsync(bool includeArchived) =>
             ++_listCalls == 1 ? Task.FromResult(initial) : _reload.Task;
 
         public Task<NoteRecord?> GetAsync(Guid id) =>
-            Task.FromResult<NoteRecord?>(reloaded.FirstOrDefault(item => item.Id == id));
+            Task.FromResult<NoteRecord?>(Persisted.FirstOrDefault(item => item.Id == id));
 
-        public Task<NoteRecord> SaveAsync(NoteDraft draft) => throw new NotSupportedException();
+        public NoteDraft? LastSave { get; private set; }
+        public IReadOnlyList<NoteRecord> Persisted { get; private set; } = reloaded;
+
+        public Task<NoteRecord> SaveAsync(NoteDraft draft)
+        {
+            LastSave = draft;
+            var current = Persisted.Single(item => item.Id == draft.Id);
+            if (draft.ExpectedRevision != current.Revision)
+                return Task.FromException<NoteRecord>(
+                    new NoteConcurrencyException(draft.Id, draft.ExpectedRevision!.Value)
+                );
+            var saved = current with
+            {
+                Title = draft.Title,
+                Body = draft.Body,
+                Url = draft.Url,
+                Revision = current.Revision + 1,
+            };
+            Persisted = Persisted.Select(item => item.Id == saved.Id ? saved : item).ToArray();
+            return Task.FromResult(saved);
+        }
 
         public Task<NoteRecord> ArchiveAsync(Guid id, bool archived) =>
             throw new NotSupportedException();

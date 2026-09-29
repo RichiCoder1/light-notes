@@ -425,7 +425,7 @@ public sealed class NoteWorkspace : IAsyncDisposable
             {
                 var refreshed = _allItems.Value.FirstOrDefault(item => item.Id == selected.Id);
                 if (refreshed is not null)
-                    Selected.Value = refreshed;
+                    RefreshSelectedRecord(refreshed);
             }
         }
         catch (Exception error)
@@ -736,8 +736,6 @@ public sealed class NoteWorkspace : IAsyncDisposable
             if (await Store.GetAsync(noteId) is { } latest)
             {
                 ReplaceRecord(latest);
-                if (Selected.Value?.Id == noteId)
-                    Selected.Value = latest;
                 _error.Value =
                     "This note changed on disk. Your draft is kept; Retry saves it over the newer version.";
             }
@@ -848,6 +846,15 @@ public sealed class NoteWorkspace : IAsyncDisposable
         Items.Value = visible;
     }
 
+    // Selected is the persisted content/revision baseline for the active editor.
+    // Only our own accepted write may advance that baseline underneath newer edits.
+    private void RefreshSelectedRecord(NoteRecord refreshed)
+    {
+        if (Selected.Value?.Id != refreshed.Id || IsDirty || Selected.Value == refreshed)
+            return;
+        SelectRecord(refreshed);
+    }
+
     private void SelectRecord(NoteRecord? item)
     {
         _autosave.Cancel();
@@ -956,7 +963,7 @@ public sealed class NoteWorkspace : IAsyncDisposable
             await RefreshAsync();
             var refreshed = Items.Value.FirstOrDefault(item => item.Id == selectedId);
             if (refreshed is not null)
-                Selected.Value = refreshed;
+                RefreshSelectedRecord(refreshed);
             else
                 SelectRecord(Items.Value.Count == 0 ? null : Items.Value[0]);
         }
