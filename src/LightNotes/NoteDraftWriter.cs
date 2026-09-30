@@ -15,12 +15,14 @@ internal sealed class NoteDraftWriter(
     INoteWorkspaceStorage storage,
     Func<OwnedDraftContent, string?> validate,
     Action<NoteRecord> saved,
+    Action<Guid> acknowledged,
     Func<Guid, Exception, Task> failed,
     Action changed
 )
 {
     private readonly Dictionary<Guid, Entry> _entries = [];
     private long _nextVersion;
+    private int _paused;
 
     public bool IsWriting => _entries.Values.Any(entry => entry.IsWriting);
 
@@ -31,6 +33,9 @@ internal sealed class NoteDraftWriter(
 
     public Exception? Failure(Guid id) =>
         _entries.TryGetValue(id, out var entry) ? entry.Failure : null;
+
+    public NoteRecoveryDraft? Recovery(Guid id) =>
+        _entries.TryGetValue(id, out var entry) ? entry.RecoveryRecord : null;
 
     public long CurrentVersion(Guid id) =>
         _entries.TryGetValue(id, out var entry) ? entry.Version : 0;
@@ -47,7 +52,7 @@ internal sealed class NoteDraftWriter(
             version
         )
         {
-            HasRecoveryRecord = true,
+            RecoveryRecord = draft,
             RecoveryDurableVersion = version,
         };
         changed();
@@ -77,7 +82,7 @@ internal sealed class NoteDraftWriter(
         if (!_entries.TryGetValue(id, out var entry) || version > entry.Version)
             return Task.CompletedTask;
         entry.RequestedVersion = Math.Max(entry.RequestedVersion, version);
-        if (entry.Failure is not null)
+        if (entry.Failure is not null || entry.DiscardPending || _paused != 0)
             return Task.CompletedTask;
         if (entry.Writer.IsCompleted)
         {
@@ -88,6 +93,71 @@ internal sealed class NoteDraftWriter(
         return entry.Writer;
     }
 
+    public bool OwnsFailedWrite(Guid id, Guid writeId) =>
+        writeId != Guid.Empty
+        && _entries.TryGetValue(id, out var entry)
+        && entry.FailedWrite?.Draft.WriteId == writeId;
+
+    public void RequestObservedDrafts()
+    {
+        foreach (var pair in _entries.ToArray())
+            _ = RequestAsync(pair.Key, pair.Value.Version);
+    }
+
+    public IDisposable PauseWrites()
+    {
+        _paused++;
+        return new WritePause(this);
+    }
+
+    private void ResumeWrites()
+    {
+        if (--_paused != 0)
+            return;
+        foreach (var pair in _entries.ToArray())
+            if (pair.Value.RequestedVersion > pair.Value.AcknowledgedVersion)
+                _ = RequestAsync(pair.Key, pair.Value.RequestedVersion);
+    }
+
+    public long BeginDiscard(Guid id)
+    {
+        if (!_entries.TryGetValue(id, out var entry))
+            return 0;
+        entry.DiscardPending = true;
+        return entry.Version;
+    }
+
+    public bool CompleteDiscard(Guid id, long version)
+    {
+        if (!_entries.TryGetValue(id, out var entry))
+            return true;
+        if (entry.Version == version)
+        {
+            _entries.Remove(id);
+            changed();
+            return true;
+        }
+        entry.DiscardPending = false;
+        entry.Failure = null;
+        entry.FailedWrite = null;
+        entry.RecoveryRecord = null;
+        entry.RecoveryDurableVersion = 0;
+        changed();
+        return false;
+    }
+
+    private sealed class WritePause(NoteDraftWriter owner) : IDisposable
+    {
+        private NoteDraftWriter? _owner = owner;
+
+        public void Dispose()
+        {
+            var current = _owner;
+            _owner = null;
+            current?.ResumeWrites();
+        }
+    }
+
     public void AcceptConflict(Guid id, long latestRevision)
     {
         if (!_entries.TryGetValue(id, out var entry))
@@ -95,6 +165,12 @@ internal sealed class NoteDraftWriter(
         entry.BaseRevision = latestRevision;
         entry.Failure = null;
         changed();
+    }
+
+    public void Retry(Guid id)
+    {
+        if (_entries.TryGetValue(id, out var entry))
+            entry.Failure = null;
     }
 
     public void Remove(Guid id)
@@ -109,7 +185,8 @@ internal sealed class NoteDraftWriter(
             !_entries.TryGetValue(id, out var entry)
             || entry.IsWriting
             || entry.AcknowledgedVersion != 0
-            || entry.HasRecoveryRecord
+            || entry.FailedWrite is not null
+            || entry.RecoveryRecord is not null
         )
             return false;
         _entries.Remove(id);
@@ -117,33 +194,52 @@ internal sealed class NoteDraftWriter(
         return true;
     }
 
-    public void Reconcile(
-        IReadOnlyList<NoteRecoveryDraft> recoveries,
-        IReadOnlyList<NoteRecord> notes
-    )
+    public void Reconcile(IReadOnlyList<NoteWriteAcknowledgement> acknowledgements)
     {
-        var recoveryById = recoveries.ToDictionary(draft => draft.Id);
-        var noteById = notes.ToDictionary(note => note.Id);
-        foreach (var pair in _entries.ToArray())
+        foreach (var acknowledgement in acknowledgements)
         {
-            var id = pair.Key;
-            var entry = pair.Value;
-            if (
-                recoveryById.TryGetValue(id, out var recovery)
-                && recovery.BaseRevision == entry.BaseRevision
-                && Same(entry.Content, recovery)
-            )
-            {
-                entry.HasRecoveryRecord = true;
-                entry.RecoveryDurableVersion = entry.Version;
-                entry.AcknowledgedVersion = Math.Max(entry.AcknowledgedVersion, entry.Version);
-                entry.Failure = null;
+            var pair = _entries.FirstOrDefault(item =>
+                item.Value.FailedWrite?.Draft.WriteId == acknowledgement.WriteId
+            );
+            if (pair.Value is not { FailedWrite: { } snapshot } entry)
                 continue;
-            }
-            if (noteById.TryGetValue(id, out var note) && Same(entry.Content, note))
-                _entries.Remove(id);
+            ApplyAcknowledgement(
+                pair.Key,
+                entry,
+                snapshot,
+                acknowledgement.Note,
+                acknowledgement.Recovery
+            );
         }
         changed();
+    }
+
+    private void ApplyAcknowledgement(
+        Guid id,
+        Entry entry,
+        Snapshot snapshot,
+        NoteRecord? note,
+        NoteRecoveryDraft? recovery
+    )
+    {
+        entry.AcknowledgedVersion = Math.Max(entry.AcknowledgedVersion, snapshot.Version);
+        entry.Failure = null;
+        entry.FailedWrite = null;
+        if (recovery is not null)
+        {
+            entry.RecoveryRecord = recovery;
+            entry.RecoveryDurableVersion = snapshot.Version;
+        }
+        else if (note is not null)
+        {
+            entry.BaseRevision = note.Revision;
+            entry.RecoveryRecord = null;
+            entry.RecoveryDurableVersion = 0;
+            if (entry.Version == snapshot.Version)
+                _entries.Remove(id);
+            saved(note);
+        }
+        acknowledged(id);
     }
 
     public Task DrainAsync() =>
@@ -158,56 +254,45 @@ internal sealed class NoteDraftWriter(
         {
             while (_entries.TryGetValue(id, out var current) && ReferenceEquals(current, entry))
             {
+                if (_paused != 0 || entry.DiscardPending)
+                    return;
                 if (entry.RequestedVersion <= entry.AcknowledgedVersion)
                     return;
                 if (entry.Version > entry.RequestedVersion)
                     return;
 
+                var content = entry.Content;
                 var snapshot = new Snapshot(
                     entry.Version,
-                    entry.Content,
-                    entry.BaseRevision,
-                    entry.HasRecoveryRecord
+                    new NoteDraft(
+                        content.Id,
+                        content.Kind,
+                        content.Title,
+                        content.Url,
+                        content.Body,
+                        entry.BaseRevision
+                    ),
+                    entry.RecoveryRecord
                 );
                 try
                 {
-                    if (validate(snapshot.Content) is not null)
+                    if (validate(content) is not null)
                     {
-                        await storage.SaveRecoveryDraftAsync(ToDraft(snapshot));
-                        entry.HasRecoveryRecord = true;
-                        entry.AcknowledgedVersion = Math.Max(
-                            entry.AcknowledgedVersion,
-                            snapshot.Version
-                        );
-                        if (entry.Version == snapshot.Version)
-                            entry.RecoveryDurableVersion = snapshot.Version;
+                        var recovery = await storage.SaveRecoveryDraftAsync(snapshot.Draft);
+                        ApplyAcknowledgement(id, entry, snapshot, null, recovery);
                     }
                     else
                     {
-                        var draft = ToDraft(snapshot);
-                        var record = snapshot.HadRecoveryRecord
-                            ? await storage.SaveAndClearRecoveryAsync(draft)
-                            : await storage.SaveAsync(draft);
-                        saved(record);
-                        entry.AcknowledgedVersion = Math.Max(
-                            entry.AcknowledgedVersion,
-                            snapshot.Version
-                        );
-                        entry.BaseRevision = record.Revision;
-                        entry.HasRecoveryRecord = false;
-                        entry.RecoveryDurableVersion = 0;
-                        if (entry.Version == snapshot.Version)
-                        {
-                            _entries.Remove(id);
-                            changed();
-                            return;
-                        }
+                        var record = snapshot.RecoveryRecord is { } recovery
+                            ? await storage.SaveAndClearRecoveryAsync(snapshot.Draft, recovery)
+                            : await storage.SaveAsync(snapshot.Draft);
+                        ApplyAcknowledgement(id, entry, snapshot, record, null);
                     }
-                    entry.Failure = null;
                     changed();
                 }
                 catch (Exception error)
                 {
+                    entry.FailedWrite = snapshot;
                     entry.Failure = error;
                     changed();
                     await failed(id, error);
@@ -222,30 +307,6 @@ internal sealed class NoteDraftWriter(
         }
     }
 
-    private static NoteDraft ToDraft(Snapshot snapshot) =>
-        new(
-            snapshot.Content.Id,
-            snapshot.Content.Kind,
-            snapshot.Content.Title,
-            snapshot.Content.Url,
-            snapshot.Content.Body,
-            snapshot.BaseRevision
-        );
-
-    private static bool Same(OwnedDraftContent content, NoteRecoveryDraft draft) =>
-        content.Id == draft.Id
-        && content.Kind == draft.Kind
-        && content.Title == draft.Title
-        && content.Url == draft.Url
-        && content.Body == draft.Body;
-
-    private static bool Same(OwnedDraftContent content, NoteRecord note) =>
-        content.Id == note.Id
-        && content.Kind == note.Kind
-        && content.Title == note.Title
-        && content.Url == note.Url
-        && content.Body == note.Body;
-
     private sealed class Entry(OwnedDraftContent content, long baseRevision, long version)
     {
         public OwnedDraftContent Content { get; set; } = content;
@@ -254,16 +315,17 @@ internal sealed class NoteDraftWriter(
         public long RequestedVersion { get; set; }
         public long AcknowledgedVersion { get; set; }
         public long RecoveryDurableVersion { get; set; }
-        public bool HasRecoveryRecord { get; set; }
+        public NoteRecoveryDraft? RecoveryRecord { get; set; }
+        public Snapshot? FailedWrite { get; set; }
         public Exception? Failure { get; set; }
         public bool IsWriting { get; set; }
+        public bool DiscardPending { get; set; }
         public Task Writer { get; set; } = Task.CompletedTask;
     }
 
-    private readonly record struct Snapshot(
+    private sealed record Snapshot(
         long Version,
-        OwnedDraftContent Content,
-        long BaseRevision,
-        bool HadRecoveryRecord
+        NoteDraft Draft,
+        NoteRecoveryDraft? RecoveryRecord
     );
 }

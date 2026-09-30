@@ -13,7 +13,10 @@ public sealed record NoteDraft(
     string? Url,
     string Body,
     long? ExpectedRevision = null
-);
+)
+{
+    public Guid WriteId { get; init; } = Guid.NewGuid();
+}
 
 public sealed record NoteRecord(
     Guid Id,
@@ -38,7 +41,30 @@ public sealed record NoteRecoveryDraft(
     DateTimeOffset UpdatedAt
 );
 
-public sealed record WriteRetryResult(int Retried, int Succeeded, int Remaining);
+public sealed record NoteWriteAcknowledgement(
+    Guid WriteId,
+    NoteRecord? Note,
+    NoteRecoveryDraft? Recovery
+);
+
+public enum NoteWriteOperation
+{
+    Draft,
+    Archive,
+}
+
+public sealed record NoteWriteFailure(
+    Guid NoteId,
+    Exception Error,
+    Guid WriteId = default,
+    NoteWriteOperation Operation = NoteWriteOperation.Draft
+);
+
+public sealed record WriteRetryResult(int Retried, int Succeeded, int Remaining)
+{
+    public IReadOnlyList<NoteWriteAcknowledgement> Acknowledgements { get; init; } = [];
+    public IReadOnlyList<NoteWriteFailure> Failures { get; init; } = [];
+}
 
 public sealed class NoteConcurrencyException : InvalidOperationException
 {

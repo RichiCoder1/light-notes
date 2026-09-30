@@ -8,7 +8,8 @@ internal interface INoteWorkspaceStorage : IAsyncDisposable
 
     Task<NoteRecord> SaveAsync(NoteDraft draft);
 
-    Task<NoteRecord> SaveAndClearRecoveryAsync(NoteDraft draft) => SaveAsync(draft);
+    Task<NoteRecord> SaveAndClearRecoveryAsync(NoteDraft draft, NoteRecoveryDraft recovery) =>
+        SaveAsync(draft);
 
     Task<NoteRecord?> GetAsync(Guid id);
 
@@ -20,7 +21,8 @@ internal interface INoteWorkspaceStorage : IAsyncDisposable
     Task<NoteRecoveryDraft> SaveRecoveryDraftAsync(NoteDraft draft) =>
         Task.FromException<NoteRecoveryDraft>(new NotSupportedException());
 
-    Task DiscardRecoveryDraftAsync(Guid id) => Task.CompletedTask;
+    Task DiscardRecoveryDraftAsync(Guid id, NoteRecoveryDraft? recovery, Guid writeId) =>
+        Task.CompletedTask;
 
     Task<NoteRecord> ArchiveAsync(Guid id, bool archived);
 
@@ -37,8 +39,10 @@ internal sealed class NoteWorkspaceStorage(NoteStore store) : INoteWorkspaceStor
 
     public Task<NoteRecord> SaveAsync(NoteDraft draft) => store.SaveAsync(draft);
 
-    public Task<NoteRecord> SaveAndClearRecoveryAsync(NoteDraft draft) =>
-        store.SaveAndClearRecoveryAsync(draft);
+    public Task<NoteRecord> SaveAndClearRecoveryAsync(
+        NoteDraft draft,
+        NoteRecoveryDraft recovery
+    ) => store.SaveAndClearRecoveryAsync(draft, recovery);
 
     public Task<NoteRecord?> GetAsync(Guid id) => store.GetAsync(id);
 
@@ -51,7 +55,8 @@ internal sealed class NoteWorkspaceStorage(NoteStore store) : INoteWorkspaceStor
     public Task<NoteRecoveryDraft> SaveRecoveryDraftAsync(NoteDraft draft) =>
         store.SaveRecoveryDraftAsync(draft);
 
-    public Task DiscardRecoveryDraftAsync(Guid id) => store.DiscardRecoveryDraftAsync(id);
+    public Task DiscardRecoveryDraftAsync(Guid id, NoteRecoveryDraft? recovery, Guid writeId) =>
+        store.DiscardRecoveryDraftAsync(id, recovery, writeId);
 
     public Task<NoteRecord> ArchiveAsync(Guid id, bool archived) =>
         store.ArchiveAsync(id, archived);

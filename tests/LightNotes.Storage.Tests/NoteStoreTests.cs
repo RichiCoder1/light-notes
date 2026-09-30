@@ -42,16 +42,65 @@ public sealed class NoteStoreTests
         var saved = await store.SaveAsync(
             new NoteDraft(id, NoteKind.Note, "Valid", null, "one", 0)
         );
-        await store.SaveRecoveryDraftAsync(
+        var recovery = await store.SaveRecoveryDraftAsync(
             new NoteDraft(id, NoteKind.Note, "", null, "unfinished", saved.Revision)
         );
 
         await store.SaveAndClearRecoveryAsync(
-            new NoteDraft(id, NoteKind.Note, "Corrected", null, "finished", saved.Revision)
+            new NoteDraft(id, NoteKind.Note, "Corrected", null, "finished", saved.Revision),
+            recovery
         );
 
         Assert.AreEqual(0, (await store.ListRecoveryDraftsAsync()).Count);
         Assert.AreEqual("Corrected", (await store.GetAsync(id))?.Title);
+    }
+
+    [TestMethod]
+    public async Task ValidSavePreservesARecoveryDraftReplacedByAnotherInstance()
+    {
+        using var temp = new TempDirectory();
+        await using var first = await NoteStore.OpenAsync(temp.DatabasePath);
+        await using var second = await NoteStore.OpenAsync(temp.DatabasePath);
+        var id = Guid.NewGuid();
+        var saved = await first.SaveAsync(new(id, NoteKind.Note, "Original", null, "saved", 0));
+        var owned = await first.SaveRecoveryDraftAsync(
+            new(id, NoteKind.Note, "", null, "first unfinished", saved.Revision)
+        );
+        var other = await second.SaveRecoveryDraftAsync(
+            new(id, NoteKind.Note, "", null, "second unfinished", saved.Revision)
+        );
+
+        await first.SaveAndClearRecoveryAsync(
+            new(id, NoteKind.Note, "Finished", null, "valid first", saved.Revision),
+            owned
+        );
+
+        Assert.AreEqual("valid first", (await second.GetAsync(id))!.Body);
+        Assert.AreEqual(other, (await second.ListRecoveryDraftsAsync()).Single());
+        await first.DiscardRecoveryDraftAsync(id, owned, Guid.NewGuid());
+        Assert.AreEqual(other, (await second.ListRecoveryDraftsAsync()).Single());
+        await second.DiscardRecoveryDraftAsync(id, other, Guid.NewGuid());
+        Assert.AreEqual(0, (await first.ListRecoveryDraftsAsync()).Count);
+    }
+
+    [TestMethod]
+    public async Task FailedDiscardRetryAcknowledgesTheExactAcceptedOperation()
+    {
+        using var temp = new TempDirectory();
+        var id = Guid.NewGuid();
+        var operation = Guid.NewGuid();
+        await using var store = await NoteStore.OpenAsync(temp.DatabasePath, new FailFirstWrite());
+        await AssertThrowsAsync<InjectedStorageException>(() =>
+            store.DiscardRecoveryDraftAsync(id, null, operation)
+        );
+        var retried = await store.RetryFailedWritesAsync();
+
+        Assert.AreEqual(0, retried.Remaining);
+        var receipt = retried.Acknowledgements.Single();
+        Assert.AreEqual(operation, receipt.WriteId);
+        Assert.IsNull(receipt.Note);
+        Assert.IsNull(receipt.Recovery);
+        Assert.IsTrue(await store.PrepareCloseAsync());
     }
 
     [TestMethod]
@@ -258,11 +307,15 @@ public sealed class NoteStoreTests
         await using var store = await NoteStore.OpenAsync(temp.DatabasePath, injector);
         var id = Guid.NewGuid();
 
-        await AssertThrowsAsync<InjectedStorageException>(() =>
-            store.SaveAsync(new NoteDraft(id, NoteKind.Note, "Retry", null, "once", 0))
-        );
+        var draft = new NoteDraft(id, NoteKind.Note, "Retry", null, "once", 0);
+        await AssertThrowsAsync<InjectedStorageException>(() => store.SaveAsync(draft));
         var retry = await store.RetryFailedWritesAsync();
 
+        var accepted = retry.Acknowledgements.Single();
+        Assert.AreEqual(draft.WriteId, accepted.WriteId);
+        Assert.AreEqual("once", accepted.Note!.Body);
+        Assert.AreEqual(1L, accepted.Note.Revision);
+        Assert.IsNull(accepted.Recovery);
         Assert.AreEqual(1, retry.Retried);
         Assert.AreEqual(1, retry.Succeeded);
         Assert.AreEqual(0, retry.Remaining);
@@ -289,11 +342,25 @@ public sealed class NoteStoreTests
 
         Assert.AreEqual(id, exception.NoteId);
         Assert.AreEqual("Newer", (await store.GetAsync(id))?.Title);
+        await AssertThrowsAsync<NoteConcurrencyException>(() =>
+            store.ArchiveAsync(id, true, created.Revision)
+        );
+        var retry = await store.RetryFailedWritesAsync();
+        Assert.AreEqual(2, retry.Remaining);
+        Assert.AreEqual(NoteWriteOperation.Draft, retry.Failures[0].Operation);
+        Assert.AreEqual(NoteWriteOperation.Archive, retry.Failures[1].Operation);
+        Assert.AreEqual(id, retry.Failures[1].NoteId);
         Assert.IsFalse(await store.PrepareCloseAsync());
         var resolved = await store.SaveAsync(
             new NoteDraft(id, NoteKind.Note, "Resolved", null, "")
         );
         Assert.AreEqual("Resolved", resolved.Title);
+        Assert.IsTrue(
+            store.HasUnresolvedWriteFailures,
+            "A saved draft cannot clear an archive failure."
+        );
+        await store.ArchiveAsync(id, true);
+        Assert.IsFalse(store.HasUnresolvedWriteFailures);
     }
 
     [TestMethod]

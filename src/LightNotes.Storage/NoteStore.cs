@@ -88,24 +88,33 @@ public sealed class NoteStore : IAsyncDisposable
         return EnqueueWrite(
             $"draft:{snapshot.Id:D}",
             snapshot.Id,
-            connection => Save(connection, snapshot, clearRecovery: false),
-            cancellationToken
+            connection => Save(connection, snapshot, recovery: null),
+            cancellationToken,
+            snapshot.WriteId
         );
     }
 
     public Task<NoteRecord> SaveAndClearRecoveryAsync(
         NoteDraft draft,
+        NoteRecoveryDraft recovery,
         CancellationToken cancellationToken = default
     )
     {
         ArgumentNullException.ThrowIfNull(draft);
+        ArgumentNullException.ThrowIfNull(recovery);
+        if (recovery.Id != draft.Id)
+            throw new ArgumentException(
+                "The recovery acknowledgement belongs to a different note.",
+                nameof(recovery)
+            );
         ValidateDraft(draft);
         var snapshot = draft with { };
         return EnqueueWrite(
             $"draft:{snapshot.Id:D}",
             snapshot.Id,
-            connection => Save(connection, snapshot, clearRecovery: true),
-            cancellationToken
+            connection => Save(connection, snapshot, recovery),
+            cancellationToken,
+            snapshot.WriteId
         );
     }
 
@@ -126,7 +135,8 @@ public sealed class NoteStore : IAsyncDisposable
             $"draft:{snapshot.Id:D}",
             snapshot.Id,
             connection => SaveRecoveryDraft(connection, snapshot),
-            cancellationToken
+            cancellationToken,
+            snapshot.WriteId
         );
     }
 
@@ -138,19 +148,33 @@ public sealed class NoteStore : IAsyncDisposable
             cancellationToken
         );
 
-    public Task DiscardRecoveryDraftAsync(Guid id, CancellationToken cancellationToken = default)
+    public Task DiscardRecoveryDraftAsync(
+        Guid id,
+        NoteRecoveryDraft? recovery,
+        Guid writeId,
+        CancellationToken cancellationToken = default
+    )
     {
         if (id == Guid.Empty)
             throw new ArgumentException("A note ID cannot be empty.", nameof(id));
+        if (writeId == Guid.Empty)
+            throw new ArgumentException("A discard requires a write identity.", nameof(writeId));
+        if (recovery is not null && recovery.Id != id)
+            throw new ArgumentException(
+                "The recovery acknowledgement belongs to a different note.",
+                nameof(recovery)
+            );
         return EnqueueWrite<object?>(
             $"draft:{id:D}",
             id,
             connection =>
             {
-                DeleteRecoveryDraft(connection, id);
+                if (recovery is not null)
+                    DeleteOwnedRecoveryDraft(connection, recovery, transaction: null);
                 return null;
             },
-            cancellationToken
+            cancellationToken,
+            writeId
         );
     }
 
@@ -191,7 +215,8 @@ public sealed class NoteStore : IAsyncDisposable
             $"archive:{id:D}",
             id,
             connection => Archive(connection, id, archived, expectedRevision),
-            cancellationToken
+            cancellationToken,
+            operation: NoteWriteOperation.Archive
         );
     }
 
@@ -284,12 +309,21 @@ public sealed class NoteStore : IAsyncDisposable
             {
                 var failures = _failedWrites.ToArray();
                 var succeeded = 0;
+                var acknowledgements = new List<NoteWriteAcknowledgement>();
                 foreach (var failure in failures)
                 {
                     try
                     {
                         _failureInjector?.BeforeWrite(failure.NoteId);
-                        failure.Retry(connection);
+                        var accepted = failure.Retry(connection);
+                        if (failure.WriteId != Guid.Empty)
+                            acknowledgements.Add(
+                                new(
+                                    failure.WriteId,
+                                    accepted as NoteRecord,
+                                    accepted as NoteRecoveryDraft
+                                )
+                            );
                         RemoveFailures(failure.Key);
                         succeeded++;
                     }
@@ -299,7 +333,18 @@ public sealed class NoteStore : IAsyncDisposable
                     }
                 }
 
-                return new WriteRetryResult(failures.Length, succeeded, _failedWrites.Count);
+                return new WriteRetryResult(failures.Length, succeeded, _failedWrites.Count)
+                {
+                    Acknowledgements = acknowledgements.ToArray(),
+                    Failures = _failedWrites
+                        .Select(item => new NoteWriteFailure(
+                            item.NoteId,
+                            item.LastException,
+                            item.WriteId,
+                            item.Operation
+                        ))
+                        .ToArray(),
+                };
             },
             cancellationToken
         );
@@ -635,6 +680,8 @@ public sealed class NoteStore : IAsyncDisposable
                     new FailedWrite(
                         workItem.Write.Key,
                         workItem.Write.NoteId,
+                        workItem.Write.WriteId,
+                        workItem.Write.Operation,
                         workItem.Write.Retry,
                         exception
                     )
@@ -660,12 +707,14 @@ public sealed class NoteStore : IAsyncDisposable
         string key,
         Guid noteId,
         Func<SqliteConnection, T> action,
-        CancellationToken cancellationToken
+        CancellationToken cancellationToken,
+        Guid writeId = default,
+        NoteWriteOperation operation = NoteWriteOperation.Draft
     )
     {
         var item = new WorkItem<T>(
             action,
-            new WriteDetails(key, noteId, connection => action(connection))
+            new WriteDetails(key, noteId, writeId, operation, connection => action(connection))
         );
         Accept(item, cancellationToken);
         return item.Task;
@@ -693,7 +742,11 @@ public sealed class NoteStore : IAsyncDisposable
         Volatile.Write(ref _unresolvedWriteFailures, _failedWrites.Count);
     }
 
-    private static NoteRecord Save(SqliteConnection connection, NoteDraft draft, bool clearRecovery)
+    private static NoteRecord Save(
+        SqliteConnection connection,
+        NoteDraft draft,
+        NoteRecoveryDraft? recovery
+    )
     {
         using var transaction = connection.BeginTransaction();
         var now = DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture);
@@ -748,8 +801,8 @@ public sealed class NoteStore : IAsyncDisposable
             var record =
                 ReadById(connection, draft.Id, transaction)
                 ?? throw new InvalidOperationException("The saved note could not be read back.");
-            if (clearRecovery)
-                DeleteRecoveryDraft(connection, draft.Id, transaction);
+            if (recovery is not null)
+                DeleteOwnedRecoveryDraft(connection, recovery, transaction);
             transaction.Commit();
             return record;
         }
@@ -820,16 +873,32 @@ public sealed class NoteStore : IAsyncDisposable
         return drafts;
     }
 
-    private static void DeleteRecoveryDraft(
+    private static void DeleteOwnedRecoveryDraft(
         SqliteConnection connection,
-        Guid id,
-        SqliteTransaction? transaction = null
+        NoteRecoveryDraft recovery,
+        SqliteTransaction? transaction
     )
     {
         using var command = connection.CreateCommand();
         command.Transaction = transaction;
-        command.CommandText = "DELETE FROM recovery_drafts WHERE note_id = $id;";
-        command.Parameters.AddWithValue("$id", id.ToString("D", CultureInfo.InvariantCulture));
+        command.CommandText = """
+            DELETE FROM recovery_drafts
+            WHERE note_id = $id AND kind = $kind AND title = $title AND url IS $url
+                AND body = $body AND base_revision = $revision AND updated_utc = $updated;
+            """;
+        command.Parameters.AddWithValue(
+            "$id",
+            recovery.Id.ToString("D", CultureInfo.InvariantCulture)
+        );
+        command.Parameters.AddWithValue("$kind", (int)recovery.Kind);
+        command.Parameters.AddWithValue("$title", recovery.Title);
+        command.Parameters.AddWithValue("$url", (object?)recovery.Url ?? DBNull.Value);
+        command.Parameters.AddWithValue("$body", recovery.Body);
+        command.Parameters.AddWithValue("$revision", recovery.BaseRevision);
+        command.Parameters.AddWithValue(
+            "$updated",
+            recovery.UpdatedAt.ToString("O", CultureInfo.InvariantCulture)
+        );
         command.ExecuteNonQuery();
     }
 
@@ -1342,12 +1411,16 @@ public sealed class NoteStore : IAsyncDisposable
     private sealed record WriteDetails(
         string Key,
         Guid NoteId,
+        Guid WriteId,
+        NoteWriteOperation Operation,
         Func<SqliteConnection, object?> Retry
     );
 
     private sealed class FailedWrite(
         string key,
         Guid noteId,
+        Guid writeId,
+        NoteWriteOperation operation,
         Func<SqliteConnection, object?> retry,
         Exception lastException
     )
@@ -1355,6 +1428,10 @@ public sealed class NoteStore : IAsyncDisposable
         public string Key { get; } = key;
 
         public Guid NoteId { get; } = noteId;
+
+        public Guid WriteId { get; } = writeId;
+
+        public NoteWriteOperation Operation { get; } = operation;
 
         public Func<SqliteConnection, object?> Retry { get; } = retry;
 

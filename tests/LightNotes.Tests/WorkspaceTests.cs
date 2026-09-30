@@ -697,6 +697,306 @@ public sealed class WorkspaceTests
     }
 
     [TestMethod]
+    [DataRow(true)]
+    [DataRow(false)]
+    public void RetriedOlderWriteKeepsNewerContentAndClearsOnlyItsRecovery(bool recovery)
+    {
+        var original = ControlledStorage.Record("Original", "saved");
+        var storage = new ReplayStorage([original]);
+        using var fixture = new Fixture(storage);
+        var model = fixture.Model;
+        fixture.Pump(model.StartAsync());
+        storage.FailNextWrite = true;
+        model.Title.Text = recovery ? "" : "Older valid draft";
+        model.Body.Text = "older accepted snapshot";
+        fixture.Drain();
+        fixture.Autosave.Fire();
+        fixture.Until(() => model.HasError);
+
+        model.Title.Text = "Newer valid draft";
+        model.Body.Text = "newer unsaved content";
+        fixture.Drain();
+        fixture.Execute(model.RetryCommand);
+        Assert.AreEqual("newer unsaved content", model.Body.Text);
+        if (model.IsDirty)
+            fixture.Execute(model.SaveCommand);
+
+        Assert.IsFalse(model.HasError);
+        Assert.IsFalse(model.IsDirty);
+        Assert.AreEqual("Newer valid draft", storage.Records[original.Id].Title);
+        Assert.AreEqual("newer unsaved content", storage.Records[original.Id].Body);
+        Assert.AreEqual(
+            0,
+            storage.Recoveries.Count,
+            "The replayed older recovery would revive on reopen."
+        );
+        var close = model.PrepareCloseAsync().AsTask();
+        fixture.Pump(close);
+        Assert.IsTrue(close.Result);
+    }
+
+    [TestMethod]
+    public void RevertingFailedDraftKeepsItsAcceptedWriteUntilTheReversionIsSaved()
+    {
+        var original = ControlledStorage.Record("Original", "saved");
+        var storage = new ReplayStorage([original]);
+        using var fixture = new Fixture(storage);
+        var model = fixture.Model;
+        fixture.Pump(model.StartAsync());
+        storage.FailNextWrite = true;
+        model.Body.Text = "failed accepted edit";
+        fixture.Execute(model.SaveCommand);
+        model.Body.Text = "saved";
+        fixture.Drain();
+        Assert.IsTrue(
+            model.IsDirty,
+            "Reverting text must retain the failed accepted write obligation."
+        );
+
+        fixture.Execute(model.RetryCommand);
+        Assert.AreEqual("saved", model.Body.Text);
+        if (model.IsDirty)
+            fixture.Execute(model.SaveCommand);
+        Assert.AreEqual("saved", storage.Records[original.Id].Body);
+        Assert.IsFalse(model.HasError);
+        Assert.IsFalse(model.IsDirty);
+    }
+
+    [TestMethod]
+    public void AutosaveClearsTheFailureOfAReplayedDraftItSuccessfullyReplaces()
+    {
+        var original = ControlledStorage.Record("Original", "saved");
+        var storage = new ReplayStorage([original]);
+        using var fixture = new Fixture(storage);
+        var model = fixture.Model;
+        fixture.Pump(model.StartAsync());
+        model.Body.Text = "First edit";
+        storage.FailNextWrite = true;
+        fixture.Execute(model.SaveCommand);
+        storage.FailNextWrite = true;
+        fixture.Execute(model.RetryCommand);
+        Assert.IsTrue(model.HasError);
+
+        model.Body.Text = "Successful replacement";
+        fixture.Drain();
+        fixture.Autosave.Fire();
+        fixture.Until(() => !model.IsSaving);
+
+        Assert.AreEqual("Successful replacement", storage.Records[original.Id].Body);
+        Assert.IsFalse(storage.HasUnresolvedWriteFailures);
+        Assert.IsFalse(model.IsDirty);
+        Assert.IsFalse(
+            model.HasError,
+            "A successful autosave must clear its resolved retry failure."
+        );
+    }
+
+    [TestMethod]
+    public void RetryReconcilesBeforeAQueuedAutosaveCapturesItsSnapshot()
+    {
+        var original = ControlledStorage.Record("Original", "saved");
+        var storage = new ReplayStorage([original]);
+        using var fixture = new Fixture(storage);
+        var model = fixture.Model;
+        fixture.Pump(model.StartAsync());
+        storage.FailNextWrite = true;
+        model.Title.Text = "";
+        fixture.Drain();
+        fixture.Autosave.Fire();
+        fixture.Until(() => model.HasError);
+        model.Title.Text = "Newer valid";
+        model.Body.Text = "newer";
+        fixture.Drain();
+        var queuedAutosave = fixture.Autosave.PendingCallback!;
+        storage.RetryRelease = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        Assert.IsTrue(model.RetryCommand.TryExecute());
+        fixture.Until(() => storage.RetryEntered);
+        queuedAutosave();
+        var writesWhileReplayHeld = storage.ValidSaveCount;
+        storage.RetryRelease.SetResult();
+        fixture.Until(() => !model.IsBusy && !model.IsSaving);
+        if (model.IsDirty)
+            fixture.Execute(model.SaveCommand);
+
+        Assert.AreEqual(
+            0,
+            writesWhileReplayHeld,
+            "A snapshot captured before replay loses the recovery acknowledgement."
+        );
+        Assert.AreEqual("newer", storage.Records[original.Id].Body);
+        Assert.AreEqual(0, storage.Recoveries.Count);
+        Assert.IsFalse(model.HasError);
+    }
+
+    [TestMethod]
+    public void DiscardPreventsQueuedAutosaveFromPersistingDiscardedContent()
+    {
+        var original = ControlledStorage.Record("Original", "saved");
+        var storage = new ReplayStorage([original]);
+        using var fixture = new Fixture(storage);
+        var model = fixture.Model;
+        fixture.Pump(model.StartAsync());
+        model.Body.Text = "discard me";
+        fixture.Drain();
+        var queuedAutosave = fixture.Autosave.PendingCallback!;
+        storage.DiscardRelease = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        Assert.IsTrue(model.DiscardDraftCommand.TryExecute());
+        fixture.Until(() => storage.DiscardEntered);
+        queuedAutosave();
+        storage.DiscardRelease.SetResult();
+        fixture.Until(() => !model.IsBusy && !model.IsSaving);
+
+        Assert.AreEqual(0, storage.ValidSaveCount);
+        Assert.AreEqual("saved", storage.Records[original.Id].Body);
+        Assert.AreEqual("saved", model.Body.Text);
+        Assert.IsFalse(model.IsDirty);
+    }
+
+    [TestMethod]
+    public void FailedCaptureRetryClearsItsFailureWhenReplayEventuallySucceeds()
+    {
+        var storage = new ReplayStorage([]);
+        using var fixture = new Fixture(storage);
+        var model = fixture.Model;
+        fixture.Pump(model.StartAsync());
+        model.Capture.Text = "Capture this";
+        storage.FailNextWrite = true;
+        fixture.Execute(model.CaptureCommand);
+        Assert.IsTrue(model.HasError);
+        storage.FailNextWrite = true;
+        fixture.Execute(model.RetryCommand);
+        Assert.IsTrue(model.HasError);
+        fixture.Execute(model.RetryCommand);
+
+        Assert.IsFalse(model.HasError);
+        Assert.AreEqual("Capture this", storage.Records.Values.Single().Body);
+        Assert.AreEqual("", model.Capture.Text);
+        var close = model.PrepareCloseAsync().AsTask();
+        fixture.Pump(close);
+        Assert.IsTrue(close.Result);
+    }
+
+    [TestMethod]
+    public void RetriedDiscardRestoresSavedContentAndCannotAutosaveTheDiscardedDraft()
+    {
+        var original = ControlledStorage.Record("Original", "saved");
+        var storage = new ReplayStorage([original]);
+        using var fixture = new Fixture(storage);
+        var model = fixture.Model;
+        fixture.Pump(model.StartAsync());
+        model.Body.Text = "discarded draft";
+        fixture.Drain();
+        var queuedAutosave = fixture.Autosave.PendingCallback!;
+        storage.FailDiscard = true;
+        fixture.Execute(model.DiscardDraftCommand);
+        Assert.IsTrue(model.HasError);
+        queuedAutosave();
+        Assert.AreEqual(0, storage.ValidSaveCount);
+        fixture.Execute(model.RetryCommand);
+
+        Assert.IsFalse(model.HasError);
+        Assert.IsFalse(model.IsDirty);
+        Assert.AreEqual("saved", model.Body.Text);
+        Assert.AreEqual("saved", storage.Records[original.Id].Body);
+        Assert.AreEqual(0, storage.ValidSaveCount);
+    }
+
+    [TestMethod]
+    public void RetrySavesAnObservedDraftBeforeCaptureMovesItOffscreen()
+    {
+        var original = ControlledStorage.Record("Original", "saved");
+        var storage = new ReplayStorage([original]);
+        using var fixture = new Fixture(storage);
+        var model = fixture.Model;
+        fixture.Pump(model.StartAsync());
+        model.Capture.Text = "Second note";
+        storage.FailNextWrite = true;
+        fixture.Execute(model.CaptureCommand);
+        model.Body.Text = "Edit made while capture failed";
+        fixture.Drain();
+        Assert.IsTrue(fixture.Autosave.HasPending);
+        fixture.Execute(model.RetryCommand);
+
+        Assert.AreNotEqual(original.Id, model.Selected.Value!.Id);
+        var close = model.PrepareCloseAsync().AsTask();
+        fixture.Pump(close);
+        Assert.IsTrue(close.Result);
+        Assert.AreEqual("Edit made while capture failed", storage.Records[original.Id].Body);
+    }
+
+    [TestMethod]
+    public void RetryingArchiveDoesNotTurnItsFailureIntoARecoveryDraftFailure()
+    {
+        var original = ControlledStorage.Record("Original", "saved");
+        var storage = new ReplayStorage([original]);
+        using var fixture = new Fixture(storage);
+        var model = fixture.Model;
+        fixture.Pump(model.StartAsync());
+        model.Title.Text = "";
+        fixture.Drain();
+        fixture.Autosave.Fire();
+        fixture.Until(() => model.HasDurableRecoveryDraft);
+        storage.FailNextWrite = true;
+        fixture.Execute(model.ArchiveCommand);
+        storage.FailNextWrite = true;
+        fixture.Execute(model.RetryCommand);
+        Assert.IsTrue(model.HasError);
+        model.Body.Text = "More invalid draft content";
+        fixture.Drain();
+        fixture.Autosave.Fire();
+        fixture.Until(() => !model.IsSaving);
+        Assert.IsTrue(model.HasError, "Saving a draft must retain the separate archive failure.");
+        fixture.Execute(model.RetryCommand);
+
+        Assert.IsTrue(storage.Records[original.Id].IsArchived);
+        Assert.AreEqual("", storage.Recoveries[original.Id].Title);
+        Assert.IsFalse(model.HasError);
+        var close = model.PrepareCloseAsync().AsTask();
+        fixture.Pump(close);
+        Assert.IsTrue(close.Result);
+    }
+
+    [TestMethod]
+    public void ResolvingOneConflictKeepsTheOtherVisibleAndCloseBlocked()
+    {
+        var first = ControlledStorage.Record("First", "saved");
+        var second = ControlledStorage.Record("Second", "saved") with { IsArchived = true };
+        var storage = new ReplayStorage([first, second]);
+        using var fixture = new Fixture(storage);
+        var model = fixture.Model;
+        fixture.Pump(model.StartAsync());
+        storage.Records[first.Id] = first with { Revision = 2, Body = "External first" };
+        model.Body.Text = "My first edit";
+        fixture.Execute(model.SaveCommand);
+        Assert.IsTrue(model.HasError);
+
+        model.ShowArchive();
+        fixture.Until(() => model.Selected.Value?.Id == second.Id);
+        storage.Records[second.Id] = second with { Revision = 2, Body = "External second" };
+        model.Body.Text = "My second edit";
+        fixture.Execute(model.SaveCommand);
+        fixture.Execute(model.RetryCommand);
+
+        Assert.AreEqual("My second edit", storage.Records[second.Id].Body);
+        Assert.AreEqual("External first", storage.Records[first.Id].Body);
+        Assert.IsTrue(
+            model.HasError,
+            "One unresolved note must remain discoverable after the other is saved."
+        );
+        StringAssert.Contains(model.ErrorMessage!, "First");
+        var close = model.PrepareCloseAsync().AsTask();
+        fixture.Pump(close);
+        Assert.IsFalse(close.Result);
+
+        fixture.Execute(model.RetryCommand);
+        Assert.AreEqual("My first edit", storage.Records[first.Id].Body);
+        Assert.IsFalse(model.HasError);
+        close = model.PrepareCloseAsync().AsTask();
+        fixture.Pump(close);
+        Assert.IsTrue(close.Result);
+    }
+
+    [TestMethod]
     public void RetriedOffscreenRecoveryIsReconciledAsDurableAndAllowsClose()
     {
         var first = ControlledStorage.Record("First", "saved");
@@ -1188,6 +1488,7 @@ public sealed class WorkspaceTests
         private Action? _pending;
 
         public bool HasPending => _pending is not null;
+        public Action? PendingCallback => _pending;
 
         public int RestartCount { get; private set; }
 
@@ -1518,6 +1819,204 @@ public sealed class WorkspaceTests
         }
     }
 
+    private sealed class ReplayStorage(IReadOnlyList<NoteRecord> initial) : INoteWorkspaceStorage
+    {
+        public Dictionary<Guid, NoteRecord> Records { get; } =
+            initial.ToDictionary(item => item.Id);
+        public Dictionary<Guid, NoteRecoveryDraft> Recoveries { get; } = [];
+        private readonly Dictionary<Guid, (NoteDraft Draft, bool Recovery, bool Clear)> _failed =
+        [];
+        private (Guid Id, bool Archived)? _failedArchive;
+        public bool FailNextWrite { get; set; }
+        public bool FailDiscard { get; set; }
+        private (Guid Id, NoteRecoveryDraft? Recovery, Guid WriteId)? _failedDiscard;
+        public int ValidSaveCount { get; private set; }
+        public TaskCompletionSource? RetryRelease { get; set; }
+        public TaskCompletionSource? DiscardRelease { get; set; }
+        public bool RetryEntered { get; private set; }
+        public bool DiscardEntered { get; private set; }
+
+        public async Task DiscardRecoveryDraftAsync(
+            Guid id,
+            NoteRecoveryDraft? recovery,
+            Guid writeId
+        )
+        {
+            DiscardEntered = true;
+            if (FailDiscard)
+            {
+                FailDiscard = false;
+                _failedDiscard = (id, recovery, writeId);
+                throw new IOException("discard unavailable");
+            }
+            if (DiscardRelease is not null)
+                await DiscardRelease.Task;
+            _failedDiscard = null;
+            if (Recoveries.GetValueOrDefault(id) == recovery)
+                Recoveries.Remove(id);
+            _failed.Remove(id);
+        }
+
+        public bool HasUnresolvedWriteFailures =>
+            _failed.Count != 0 || _failedDiscard is not null || _failedArchive is not null;
+
+        public Task<NoteRecord> SaveAsync(NoteDraft draft) => Save(draft, false);
+
+        public Task<NoteRecord> SaveAndClearRecoveryAsync(
+            NoteDraft draft,
+            NoteRecoveryDraft recovery
+        ) => Save(draft, Recoveries.GetValueOrDefault(draft.Id) == recovery);
+
+        private Task<NoteRecord> Save(NoteDraft draft, bool clear)
+        {
+            ValidSaveCount++;
+            var current =
+                Records.GetValueOrDefault(draft.Id)
+                ?? new NoteRecord(
+                    draft.Id,
+                    draft.Kind,
+                    "",
+                    null,
+                    "",
+                    false,
+                    0,
+                    DateTimeOffset.UtcNow,
+                    DateTimeOffset.UtcNow
+                );
+            if (FailNextWrite || draft.ExpectedRevision != current.Revision)
+            {
+                Exception error = FailNextWrite
+                    ? new IOException("disk unavailable")
+                    : new NoteConcurrencyException(draft.Id, draft.ExpectedRevision!.Value);
+                FailNextWrite = false;
+                _failed[draft.Id] = (draft, false, clear);
+                return Task.FromException<NoteRecord>(error);
+            }
+            var saved = current with
+            {
+                Title = draft.Title,
+                Body = draft.Body,
+                Url = draft.Url,
+                Kind = draft.Kind,
+                Revision = current.Revision + 1,
+            };
+            Records[draft.Id] = saved;
+            if (clear)
+                Recoveries.Remove(draft.Id);
+            _failed.Remove(draft.Id);
+            return Task.FromResult(saved);
+        }
+
+        public Task<NoteRecoveryDraft> SaveRecoveryDraftAsync(NoteDraft draft)
+        {
+            if (FailNextWrite)
+            {
+                FailNextWrite = false;
+                _failed[draft.Id] = (draft, true, false);
+                return Task.FromException<NoteRecoveryDraft>(new IOException("disk unavailable"));
+            }
+            var recovery = new NoteRecoveryDraft(
+                draft.Id,
+                draft.Kind,
+                draft.Title,
+                draft.Url,
+                draft.Body,
+                draft.ExpectedRevision!.Value,
+                DateTimeOffset.UtcNow
+            );
+            Recoveries[draft.Id] = recovery;
+            _failed.Remove(draft.Id);
+            return Task.FromResult(recovery);
+        }
+
+        public async Task<WriteRetryResult> RetryFailedWritesAsync()
+        {
+            RetryEntered = true;
+            if (RetryRelease is not null)
+                await RetryRelease.Task;
+            var pending = _failed.Values.ToArray();
+            var succeeded = 0;
+            var failures = new List<NoteWriteFailure>();
+            var acknowledgements = new List<NoteWriteAcknowledgement>();
+            foreach (var item in pending)
+            {
+                try
+                {
+                    if (item.Recovery)
+                        acknowledgements.Add(
+                            new(item.Draft.WriteId, null, await SaveRecoveryDraftAsync(item.Draft))
+                        );
+                    else
+                        acknowledgements.Add(
+                            new(item.Draft.WriteId, await Save(item.Draft, item.Clear), null)
+                        );
+                    succeeded++;
+                }
+                catch (Exception error) when (error is NoteConcurrencyException or IOException)
+                {
+                    failures.Add(new(item.Draft.Id, error, item.Draft.WriteId));
+                }
+            }
+            if (_failedDiscard is { } discard)
+            {
+                await DiscardRecoveryDraftAsync(discard.Id, discard.Recovery, discard.WriteId);
+                acknowledgements.Add(new(discard.WriteId, null, null));
+                succeeded++;
+            }
+            if (_failedArchive is { } archive)
+            {
+                try
+                {
+                    await ArchiveAsync(archive.Id, archive.Archived);
+                    succeeded++;
+                }
+                catch (IOException error)
+                {
+                    failures.Add(new(archive.Id, error, Operation: NoteWriteOperation.Archive));
+                }
+            }
+            return new(pending.Length, succeeded, _failed.Count + (_failedArchive is null ? 0 : 1))
+            {
+                Acknowledgements = acknowledgements,
+                Failures = failures,
+            };
+        }
+
+        public Task<NoteRecord?> GetAsync(Guid id) =>
+            Task.FromResult(Records.GetValueOrDefault(id));
+
+        public Task<IReadOnlyList<NoteRecord>> ListAsync(bool includeArchived) =>
+            Task.FromResult<IReadOnlyList<NoteRecord>>(Records.Values.ToArray());
+
+        public Task<IReadOnlyList<NoteRecoveryDraft>> ListRecoveryDraftsAsync() =>
+            Task.FromResult<IReadOnlyList<NoteRecoveryDraft>>(Recoveries.Values.ToArray());
+
+        public Task<NoteRecord> ArchiveAsync(Guid id, bool archived)
+        {
+            if (FailNextWrite)
+            {
+                FailNextWrite = false;
+                _failedArchive = (id, archived);
+                return Task.FromException<NoteRecord>(new IOException("archive unavailable"));
+            }
+            _failedArchive = null;
+            var updated = Records[id] with
+            {
+                IsArchived = archived,
+                Revision = Records[id].Revision + 1,
+            };
+            Records[id] = updated;
+            return Task.FromResult(updated);
+        }
+
+        public Task BackupAsync(string destinationPath) => Task.CompletedTask;
+
+        public Task<bool> PrepareCloseAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult(!HasUnresolvedWriteFailures);
+
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+    }
+
     private sealed class RetryableRecoveryStorage(IReadOnlyList<NoteRecord> records)
         : INoteWorkspaceStorage
     {
@@ -1554,7 +2053,12 @@ public sealed class WorkspaceTests
                 DateTimeOffset.UtcNow
             );
             HasUnresolvedWriteFailures = false;
-            return Task.FromResult(new WriteRetryResult(1, 1, 0));
+            return Task.FromResult(
+                new WriteRetryResult(1, 1, 0)
+                {
+                    Acknowledgements = [new(pending.WriteId, null, _durable)],
+                }
+            );
         }
 
         public Task<IReadOnlyList<NoteRecoveryDraft>> ListRecoveryDraftsAsync() =>

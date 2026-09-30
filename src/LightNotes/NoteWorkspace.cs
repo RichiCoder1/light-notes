@@ -18,7 +18,17 @@ public sealed class NoteWorkspace : IAsyncDisposable
     private Guid? _captureId;
     private readonly Signal<bool> _closing;
     private OwnedDraftContent? _observedDraft;
-    private Exception? _saveFailure;
+    private readonly Dictionary<Guid, Exception> _saveFailures = [];
+    private NoteWriteFailure[] _storageFailures = [];
+    private readonly Dictionary<Guid, PendingDiscard> _pendingDiscards = [];
+
+    private sealed record PendingDiscard(
+        Guid Id,
+        Guid WriteId,
+        long Version,
+        bool Accepted = false
+    );
+
     private NoteDraftWriter? _draftWriter;
     private readonly Signal<bool> _ready;
     private readonly Signal<bool> _busy;
@@ -592,7 +602,10 @@ public sealed class NoteWorkspace : IAsyncDisposable
         {
             if (action != RetryAsync && !preservingWriteFailure)
                 _retry = action;
-            if (!preservingWriteFailure && !ReferenceEquals(error, _saveFailure))
+            if (
+                !preservingWriteFailure
+                && !_saveFailures.Values.Any(failure => ReferenceEquals(error, failure))
+            )
             {
                 _error.Value = error.Message;
                 _errorHeading.Value = errorHeading;
@@ -615,12 +628,8 @@ public sealed class NoteWorkspace : IAsyncDisposable
                 if (Selected.Value?.Id == saved.Id)
                     Selected.Value = saved;
                 ReplaceRecord(saved);
-                if (!HasPendingWriteFailure)
-                {
-                    _saveFailure = null;
-                    _error.Value = null;
-                }
             },
+            id => ResolveWriteFailure(id, NoteWriteOperation.Draft),
             (id, error) => RecordSaveFailureAsync(error, id),
             () =>
             {
@@ -656,6 +665,7 @@ public sealed class NoteWorkspace : IAsyncDisposable
             0
         );
         var saved = await Store.SaveAsync(draft);
+        ResolveWriteFailure(saved.Id, NoteWriteOperation.Draft);
         _captureId = null;
         Capture.Text = "";
         await RefreshAsync();
@@ -706,7 +716,7 @@ public sealed class NoteWorkspace : IAsyncDisposable
     }
 
     private bool HasPendingWriteFailure =>
-        _saveFailure is not null || (_store?.HasUnresolvedWriteFailures ?? false);
+        _saveFailures.Count != 0 || (_store?.HasUnresolvedWriteFailures ?? false);
 
     private static string? Validate(OwnedDraftContent content)
     {
@@ -723,26 +733,61 @@ public sealed class NoteWorkspace : IAsyncDisposable
         return null;
     }
 
+    private KeyValuePair<Guid, Exception>? ActiveWriteFailure =>
+        Selected.Value is { } selected && _saveFailures.TryGetValue(selected.Id, out var error)
+            ? new(selected.Id, error)
+        : _saveFailures.Count == 0 ? null
+        : _saveFailures.First();
+
+    private void ResolveWriteFailure(Guid id, NoteWriteOperation operation)
+    {
+        var removed = operation == NoteWriteOperation.Draft && _saveFailures.Remove(id);
+        var remaining = _storageFailures
+            .Where(failure => failure.NoteId != id || failure.Operation != operation)
+            .ToArray();
+        removed |= remaining.Length != _storageFailures.Length;
+        _storageFailures = remaining;
+        if (removed)
+            PublishWriteFailures();
+    }
+
+    private void PublishWriteFailures()
+    {
+        var current = ActiveWriteFailure;
+        if (current is null && _storageFailures.Length != 0)
+            current = new(_storageFailures[0].NoteId, _storageFailures[0].Error);
+        if (current is not { } failure)
+        {
+            _error.Value = null;
+            return;
+        }
+        _errorHeading.Value = "Could not save";
+        var title = _allItems.Value.FirstOrDefault(item => item.Id == failure.Key)?.Title ?? "Note";
+        var message =
+            failure.Value is NoteConcurrencyException
+                ? "This note changed on disk. Your draft is kept; Retry saves it over the newer version."
+                : failure.Value.Message;
+        var remaining =
+            _saveFailures.Count > 1 ? $" {_saveFailures.Count} notes still need attention." : "";
+        _error.Value = title + ": " + message + remaining;
+    }
+
     private async Task RecordSaveFailureAsync(Exception error, Guid noteId)
     {
-        _saveFailure = error;
-        _errorHeading.Value = "Could not save";
-        _error.Value = error.Message;
+        _saveFailures[noteId] = error;
         _retry = SaveCurrentAsync;
+        PublishWriteFailures();
         if (error is not NoteConcurrencyException conflict || conflict.NoteId != noteId)
             return;
         try
         {
             if (await Store.GetAsync(noteId) is { } latest)
-            {
                 ReplaceRecord(latest);
-                _error.Value =
-                    "This note changed on disk. Your draft is kept; Retry saves it over the newer version.";
-            }
         }
         catch
         { /* Keep the original failure and draft when refresh also fails. */
         }
+        PublishWriteFailures();
     }
 
     private async Task SaveCurrentAsync()
@@ -782,6 +827,7 @@ public sealed class NoteWorkspace : IAsyncDisposable
         if (wasActive)
             await SaveCurrentAsync();
         var changed = await Store.ArchiveAsync(id, archived);
+        ResolveWriteFailure(id, NoteWriteOperation.Archive);
         ReplaceRecord(changed);
         if (!wasActive)
             return;
@@ -869,6 +915,8 @@ public sealed class NoteWorkspace : IAsyncDisposable
         Url.SwitchDocument(id, content?.Url ?? "");
         Body.SwitchDocument(id, content?.Body ?? "");
         _observedDraft = content;
+        if (_saveFailures.Count != 0)
+            PublishWriteFailures();
     }
 
     private bool TryGetWebUri(Guid id, out Uri uri)
@@ -893,13 +941,61 @@ public sealed class NoteWorkspace : IAsyncDisposable
     {
         if (Selected.Value is not { } selected || !DraftWriter.Has(selected.Id))
             return;
-        await DraftWriter.DrainAsync(selected.Id);
-        await Store.DiscardRecoveryDraftAsync(selected.Id);
-        DraftWriter.Remove(selected.Id);
-        SelectRecord(selected);
-        _error.Value = null;
+        _autosave.Cancel();
+        ObserveDraft();
+        using var paused = DraftWriter.PauseWrites();
+        var pending = new PendingDiscard(
+            selected.Id,
+            Guid.NewGuid(),
+            DraftWriter.BeginDiscard(selected.Id)
+        );
+        _pendingDiscards[selected.Id] = pending;
+        await DraftWriter.DrainAsync();
+        try
+        {
+            await CompletePendingDiscardAsync(pending);
+        }
+        catch (Exception error)
+        {
+            await RecordSaveFailureAsync(error, selected.Id);
+            throw;
+        }
+    }
+
+    private async Task CompletePendingDiscardAsync(PendingDiscard pending)
+    {
+        _autosave.Cancel();
+        using var paused = DraftWriter.PauseWrites();
+        await DraftWriter.DrainAsync();
+        if (!pending.Accepted)
+            await Store.DiscardRecoveryDraftAsync(
+                pending.Id,
+                DraftWriter.Recovery(pending.Id),
+                pending.WriteId
+            );
+        await AcknowledgeDiscardAsync(pending);
+    }
+
+    private Task AcknowledgeDiscardAsync(PendingDiscard pending)
+    {
+        pending = pending with { Accepted = true };
+        _pendingDiscards[pending.Id] = pending;
+        return FinishDiscardAsync(pending);
+    }
+
+    private async Task FinishDiscardAsync(PendingDiscard pending)
+    {
+        var latest = await Store.GetAsync(pending.Id);
+        var removed = DraftWriter.CompleteDiscard(pending.Id, pending.Version);
+        _pendingDiscards.Remove(pending.Id);
+        ResolveWriteFailure(pending.Id, NoteWriteOperation.Draft);
+        if (latest is not null)
+            ReplaceRecord(latest);
+        if (removed && Selected.Value?.Id == pending.Id)
+            SelectRecord(latest);
+        PublishWriteFailures();
         _retry = null;
-        _status.Value = "Draft discarded";
+        _status.Value = removed ? "Draft discarded" : "Newer edits kept";
     }
 
     private CollectionMemory CollectionState(bool archived) => _collections[archived ? 1 : 0];
@@ -918,7 +1014,7 @@ public sealed class NoteWorkspace : IAsyncDisposable
 
     private async Task RetryAsync()
     {
-        if (_saveFailure is NoteConcurrencyException conflict)
+        if (ActiveWriteFailure is { Value: NoteConcurrencyException conflict })
         {
             var latest =
                 await Store.GetAsync(conflict.NoteId)
@@ -933,7 +1029,30 @@ public sealed class NoteWorkspace : IAsyncDisposable
         }
         else if (_store is { HasUnresolvedWriteFailures: true })
         {
+            _autosave.Cancel();
+            using var paused = DraftWriter.PauseWrites();
+            ObserveDraft();
+            DraftWriter.RequestObservedDrafts();
+            await DraftWriter.DrainAsync();
             var result = await _store.RetryFailedWritesAsync();
+            _storageFailures = result
+                .Failures.Where(failure =>
+                    !DraftWriter.OwnsFailedWrite(failure.NoteId, failure.WriteId)
+                )
+                .ToArray();
+            DraftWriter.Reconcile(result.Acknowledgements);
+            foreach (var receipt in result.Acknowledgements)
+            {
+                var discard = _pendingDiscards.Values.FirstOrDefault(item =>
+                    item.WriteId == receipt.WriteId
+                );
+                if (discard is not null)
+                    await AcknowledgeDiscardAsync(discard);
+            }
+            foreach (var failure in result.Failures)
+                if (DraftWriter.OwnsFailedWrite(failure.NoteId, failure.WriteId))
+                    _saveFailures[failure.NoteId] = failure.Error;
+            PublishWriteFailures();
             if (result.Remaining != 0)
                 throw new IOException("Accepted changes still could not be saved.");
             if (_captureId is { } pendingId)
@@ -949,9 +1068,23 @@ public sealed class NoteWorkspace : IAsyncDisposable
                     SelectRecord(captured);
                 }
             }
-            var notes = await _store.ListAsync(includeArchived: true);
-            var recoveries = await _store.ListRecoveryDraftsAsync();
-            DraftWriter.Reconcile(recoveries, notes);
+        }
+        else if (_pendingDiscards.Count != 0)
+        {
+            var pending =
+                Selected.Value is { } selected
+                && _pendingDiscards.TryGetValue(selected.Id, out var selectedDiscard)
+                    ? selectedDiscard
+                    : _pendingDiscards.Values.First();
+            await CompletePendingDiscardAsync(pending);
+        }
+        else if (ActiveWriteFailure is { } failed)
+        {
+            // Retry authorizes this note only; every other unresolved conflict stays visible.
+            DraftWriter.Retry(failed.Key);
+            await DraftWriter.RequestAsync(failed.Key, DraftWriter.CurrentVersion(failed.Key));
+            if (DraftWriter.Failure(failed.Key) is { } error)
+                throw error;
         }
         else if (_retry is { } retry)
             await retry();
@@ -967,8 +1100,7 @@ public sealed class NoteWorkspace : IAsyncDisposable
             else
                 SelectRecord(Items.Value.Count == 0 ? null : Items.Value[0]);
         }
-        _saveFailure = null;
-        _error.Value = null;
+        PublishWriteFailures();
     }
 
     private async Task BackupAsync()
