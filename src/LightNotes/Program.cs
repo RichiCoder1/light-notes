@@ -164,7 +164,27 @@ internal static class Program
         }
     }
 
-    private static async Task<int> MaintainAsync(string[] args, string databasePath)
+    internal static async Task<int> MaintainAsync(string[] args, string databasePath)
+    {
+        try
+        {
+            return await MaintainCoreAsync(args, databasePath);
+        }
+        catch (Exception error)
+            when (error
+                    is IOException
+                        or UnauthorizedAccessException
+                        or ArgumentException
+                        or UnsupportedSchemaVersionException
+                        or Microsoft.Data.Sqlite.SqliteException
+            )
+        {
+            Console.Error.WriteLine("Light Notes maintenance failed: " + error.Message);
+            return 1;
+        }
+    }
+
+    private static async Task<int> MaintainCoreAsync(string[] args, string databasePath)
     {
         if (args.Length == 3 && args[0] == "--restore")
         {
@@ -186,7 +206,7 @@ internal static class Program
             );
             return 2;
         }
-        await using var store = await NoteStore.OpenAsync(databasePath);
+        await using var store = await NoteStore.OpenExistingAsync(databasePath);
         if (args[0] == "--export")
             await store.ExportJsonAsync(args[1]);
         else

@@ -395,7 +395,10 @@ public sealed class WorkspaceTests
     }
 
     [TestMethod]
-    public void LateAutosaveCompletionDoesNotMarkANewerDraftSavedOrResetItsEditor()
+    [DataRow("autosave")]
+    [DataRow("save")]
+    [DataRow("backup")]
+    public void LateSaveCompletionDoesNotMarkANewerDraftSavedOrResetItsEditor(string operation)
     {
         var original = ControlledStorage.Record("Original", "Original body");
         var storage = new ControlledStorage(original);
@@ -405,17 +408,26 @@ public sealed class WorkspaceTests
 
         model.Body.Text = "First autosave snapshot";
         fixture.Drain();
-        fixture.Autosave.Fire();
+        if (operation == "autosave")
+            fixture.Autosave.Fire();
+        else
+            Assert.IsTrue(
+                (operation == "save" ? model.SaveCommand : model.BackupCommand).TryExecute()
+            );
         fixture.Until(() => storage.Saves.Count == 1);
         Assert.IsTrue(model.IsSaving);
-        Assert.IsTrue(model.CanEdit);
+        var editingAllowedWhilePending = model.CanEdit;
+        var commandsBlockedWhilePending =
+            !model.SaveCommand.IsEnabled
+            && !model.BackupCommand.IsEnabled
+            && !model.ToggleArchiveCommand.IsEnabled;
 
         model.Body.Text = "Newer draft while save is pending";
         model.Body.SetSelection(6, 11);
         fixture.Drain();
         Assert.IsTrue(fixture.Autosave.HasPending);
         storage.CompleteSave(0);
-        fixture.Until(() => !model.IsSaving);
+        fixture.Until(() => !model.IsSaving && !model.IsBusy);
 
         Assert.AreEqual("Newer draft while save is pending", model.Body.Text);
         Assert.AreEqual(6, model.Body.Anchor);
@@ -430,6 +442,52 @@ public sealed class WorkspaceTests
         storage.CompleteSave(1);
         fixture.Until(() => !model.IsSaving && !model.IsDirty);
         Assert.AreEqual("Newer draft while save is pending", model.Selected.Value!.Body);
+        Assert.IsTrue(
+            editingAllowedWhilePending,
+            "Pending save or backup disabled the active editor."
+        );
+        if (operation != "autosave")
+            Assert.IsTrue(
+                commandsBlockedWhilePending,
+                "A second command was admitted during the pending command."
+            );
+    }
+
+    [TestMethod]
+    public void PendingBackupAllowsNewDraftWhileCloseDrainsCommandAndLatestWrite()
+    {
+        var storage = new ControlledStorage(ControlledStorage.Record("Original", "Saved body"))
+        {
+            HoldBackup = true,
+        };
+        using var fixture = new Fixture(storage);
+        var model = fixture.Model;
+        fixture.Pump(model.StartAsync());
+        Assert.IsTrue(model.BackupCommand.TryExecute());
+        fixture.Until(() => storage.BackupStarted);
+        var editingAllowed = model.CanEdit;
+        var commandsBlocked =
+            !model.SaveCommand.TryExecute()
+            && !model.BackupCommand.TryExecute()
+            && !model.ToggleArchiveCommand.TryExecute();
+        var route = model.Navigation.Current;
+        model.BackToCollection();
+        Assert.AreSame(route, model.Navigation.Current);
+        model.Body.Text = "Typed during backup";
+        fixture.Drain();
+        var close = model.PrepareCloseAsync().AsTask();
+        var closeWaited = !close.IsCompleted && !model.CanEdit && !model.CanRunCommands;
+        storage.CompleteBackup();
+        fixture.Until(() => storage.Saves.Count == 1);
+        Assert.IsFalse(close.IsCompleted);
+        Assert.AreEqual("Typed during backup", storage.Saves[0].Draft.Body);
+        storage.CompleteSave(0);
+        fixture.Pump(close);
+        Assert.IsTrue(close.Result);
+        Assert.AreEqual("Typed during backup", storage.Current.Body);
+        Assert.IsTrue(editingAllowed);
+        Assert.IsTrue(commandsBlocked);
+        Assert.IsTrue(closeWaited);
     }
 
     [TestMethod]
@@ -1571,6 +1629,14 @@ public sealed class WorkspaceTests
 
     private sealed class ControlledStorage(NoteRecord initial) : INoteWorkspaceStorage
     {
+        private readonly TaskCompletionSource _backup = new(
+            TaskCreationOptions.RunContinuationsAsynchronously
+        );
+        public bool HoldBackup { get; init; }
+        public bool BackupStarted { get; private set; }
+
+        public void CompleteBackup() => _backup.TrySetResult();
+
         public List<PendingSave> Saves { get; } = [];
 
         public NoteRecord Current { get; private set; } = initial;
@@ -1611,7 +1677,11 @@ public sealed class WorkspaceTests
         public Task<WriteRetryResult> RetryFailedWritesAsync() =>
             Task.FromResult(new WriteRetryResult(0, 0, 0));
 
-        public Task BackupAsync(string destinationPath) => throw new NotSupportedException();
+        public Task BackupAsync(string destinationPath)
+        {
+            BackupStarted = true;
+            return HoldBackup ? _backup.Task : Task.CompletedTask;
+        }
 
         public Task<bool> PrepareCloseAsync(CancellationToken cancellationToken = default) =>
             Task.FromResult(true);

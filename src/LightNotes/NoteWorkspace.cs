@@ -32,6 +32,7 @@ public sealed class NoteWorkspace : IAsyncDisposable
     private NoteDraftWriter? _draftWriter;
     private readonly Signal<bool> _ready;
     private readonly Signal<bool> _busy;
+    private readonly Signal<bool> _preserveEditing;
     private readonly Signal<bool> _saving;
     private readonly Signal<string?> _error;
     private readonly Signal<string> _errorHeading;
@@ -88,6 +89,7 @@ public sealed class NoteWorkspace : IAsyncDisposable
         _ = owner.Effect(ApplyFilter, "notes-filter");
         _ready = owner.Signal(false, "storage-ready");
         _busy = owner.Signal(false, "workspace-busy");
+        _preserveEditing = owner.Signal(false, "workspace-preserve-editing");
         _saving = owner.Signal(false, "workspace-saving");
         _closing = owner.Signal(false, "workspace-closing");
         _error = owner.Signal<string?>(null, "save-error");
@@ -97,49 +99,53 @@ public sealed class NoteWorkspace : IAsyncDisposable
         CaptureCommand = new(
             owner,
             _ => Run(CaptureAsync, "Saving..."),
-            () => CanEdit && !string.IsNullOrWhiteSpace(Capture.Text),
+            () => CanRunCommands && !string.IsNullOrWhiteSpace(Capture.Text),
             "capture-note"
         );
         SaveCommand = new(
             owner,
-            _ => Run(SaveCurrentAsync, "Saving..."),
-            () => CanEdit && Selected.Value is not null && IsDirty,
+            _ => Run(SaveCurrentAsync, "Saving...", preserveEditing: true),
+            () => CanRunCommands && Selected.Value is not null && IsDirty,
             "save-note"
         );
         ArchiveCommand = new(
             owner,
             _ => Run(ArchiveAsync, "Saving..."),
-            () => CanEdit && Selected.Value is not null,
+            () => CanRunCommands && Selected.Value is not null,
             "archive-note"
         );
         OpenLinkCommand = new(
             owner,
             _ => Run(OpenLinkAsync, "Opening link...", "Could not open link"),
-            () => CanEdit && CanOpenLink,
+            () => CanRunCommands && CanOpenLink,
             "open-link"
         );
         RetryCommand = new(
             owner,
             _ => Run(RetryAsync, "Trying again..."),
-            () => !IsBusy && _error.Value is not null,
+            () =>
+                !IsBusy
+                && !_closing.Value
+                && Navigation.Pending is null
+                && _error.Value is not null,
             "retry-storage"
         );
         BackupCommand = new(
             owner,
-            _ => Run(BackupAsync, "Creating backup..."),
-            () => CanEdit,
+            _ => Run(BackupAsync, "Creating backup...", preserveEditing: true),
+            () => CanRunCommands,
             "backup-notes"
         );
         DiscardDraftCommand = new(
             owner,
             _ => Run(DiscardDraftAsync, "Discarding draft..."),
-            () => CanEdit && HasRecoveryDraft,
+            () => CanRunCommands && HasRecoveryDraft,
             "discard-draft"
         );
         ToggleArchiveCommand = new(
             owner,
             _ => Run(ToggleArchiveAsync, "Opening notes..."),
-            () => CanEdit,
+            () => CanRunCommands,
             "toggle-archive"
         );
         FocusCaptureCommand = new(
@@ -149,7 +155,7 @@ public sealed class NoteWorkspace : IAsyncDisposable
                 RequestFocus(CaptureFocus, selectAll: true);
                 return Task.CompletedTask;
             },
-            () => CanEdit,
+            () => CanRunCommands,
             "focus-capture"
         );
         FocusSearchCommand = new(
@@ -159,7 +165,7 @@ public sealed class NoteWorkspace : IAsyncDisposable
                 BackToCollection(selectAll: true);
                 return Task.CompletedTask;
             },
-            () => CanEdit,
+            () => CanRunCommands,
             "focus-search"
         );
         BackToCollectionCommand = new(
@@ -169,7 +175,8 @@ public sealed class NoteWorkspace : IAsyncDisposable
                 BackToCollection();
                 return Task.CompletedTask;
             },
-            () => CanEdit && ShowEditor && !Breakpoints.IsActive(LightNotesBreakpoints.Medium),
+            () =>
+                CanRunCommands && ShowEditor && !Breakpoints.IsActive(LightNotesBreakpoints.Medium),
             "back-to-collection"
         );
         CaptureBindings = new([new(CaptureCommand, new(Key.Enter, KeyModifiers.None))]);
@@ -215,7 +222,13 @@ public sealed class NoteWorkspace : IAsyncDisposable
     public bool IsReady => _ready.Value;
     public bool IsBusy => _busy.Value;
     public bool IsSaving => _saving.Value;
-    public bool CanEdit => IsReady && !IsBusy && !_closing.Value && Navigation.Pending is null;
+    public bool CanRunCommands =>
+        IsReady && !IsBusy && !_closing.Value && Navigation.Pending is null;
+    public bool CanEdit =>
+        IsReady
+        && (!IsBusy || _preserveEditing.Value)
+        && !_closing.Value
+        && Navigation.Pending is null;
     public bool CanSearch => IsReady && !_closing.Value;
     public bool CanOpenLink => TryGetSelectedWebUri(out _);
     public bool HasRecoveryDraft
@@ -301,7 +314,7 @@ public sealed class NoteWorkspace : IAsyncDisposable
     /// <summary>Requests the current collection route while retaining the editor draft.</summary>
     public void BackToCollection(bool selectAll = false)
     {
-        if (!CanEdit)
+        if (!CanRunCommands)
             return;
         if (ShowCollection)
         {
@@ -331,7 +344,7 @@ public sealed class NoteWorkspace : IAsyncDisposable
 
     public void Select(Guid id)
     {
-        if (!CanEdit || !_allItems.Value.Any(item => item.Id == id))
+        if (!CanRunCommands || !_allItems.Value.Any(item => item.Id == id))
             return;
         if (ShowEditor && Selected.Value?.Id == id)
         {
@@ -343,7 +356,7 @@ public sealed class NoteWorkspace : IAsyncDisposable
 
     private void SelectCollection(bool archived)
     {
-        if (!CanEdit)
+        if (!CanRunCommands)
             return;
         if (ShowCollection && ShowArchived.Value == archived)
         {
@@ -359,7 +372,7 @@ public sealed class NoteWorkspace : IAsyncDisposable
     /// <summary>Archives or restores a row target without changing the active editor.</summary>
     public void SetArchived(Guid id, bool archived)
     {
-        if (!CanEdit || !_allItems.Value.Any(item => item.Id == id))
+        if (!CanRunCommands || !_allItems.Value.Any(item => item.Id == id))
             return;
         _ = Run(() => SetArchivedAsync(id, archived), archived ? "Archiving..." : "Restoring...");
     }
@@ -370,7 +383,7 @@ public sealed class NoteWorkspace : IAsyncDisposable
     /// <summary>Opens a record target's link without selecting that record.</summary>
     public void OpenRecordLink(Guid id)
     {
-        if (!CanEdit || !TryGetWebUri(id, out var uri))
+        if (!CanRunCommands || !TryGetWebUri(id, out var uri))
             return;
         _ = Run(() => OpenUriAsync(uri), "Opening link...", "Could not open link");
     }
@@ -572,16 +585,27 @@ public sealed class NoteWorkspace : IAsyncDisposable
     private static RouteReference NoteReference(bool archived, Guid id) =>
         archived ? LightNotesRoutes.ArchiveNote(id) : LightNotesRoutes.InboxNote(id);
 
-    private Task Run(Func<Task> action, string status, string errorHeading = "Could not save")
+    private Task Run(
+        Func<Task> action,
+        string status,
+        string errorHeading = "Could not save",
+        bool preserveEditing = false
+    )
     {
         if (IsBusy)
             return _pending;
-        _pending = RunCore(action, status, errorHeading);
+        _pending = RunCore(action, status, errorHeading, preserveEditing);
         return _pending;
     }
 
-    private async Task RunCore(Func<Task> action, string status, string errorHeading)
+    private async Task RunCore(
+        Func<Task> action,
+        string status,
+        string errorHeading,
+        bool preserveEditing
+    )
     {
+        _preserveEditing.Value = preserveEditing;
         _busy.Value = true;
         var preservingWriteFailure = HasPendingWriteFailure;
         if (!preservingWriteFailure)
@@ -614,6 +638,7 @@ public sealed class NoteWorkspace : IAsyncDisposable
         finally
         {
             _busy.Value = false;
+            _preserveEditing.Value = false;
         }
     }
 

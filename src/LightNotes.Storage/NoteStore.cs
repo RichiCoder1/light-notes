@@ -15,16 +15,22 @@ public sealed class NoteStore : IAsyncDisposable
     private readonly TaskCompletionSource _workerStopped = NewCompletion();
     private readonly List<FailedWrite> _failedWrites = [];
     private readonly string _databasePath;
+    private readonly bool _requireExisting;
     private readonly IStorageFailureInjector? _failureInjector;
     private StoreState _state = StoreState.Opening;
     private Task<bool>? _closeTask;
     private int _unresolvedWriteFailures;
 
-    private NoteStore(string databasePath, IStorageFailureInjector? failureInjector)
+    private NoteStore(
+        string databasePath,
+        IStorageFailureInjector? failureInjector,
+        bool requireExisting
+    )
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(databasePath);
         _databasePath = Path.GetFullPath(databasePath);
         _failureInjector = failureInjector;
+        _requireExisting = requireExisting;
 
         var worker = new Thread(RunWorker) { IsBackground = true, Name = "LightNotes.Storage" };
         worker.Start();
@@ -36,6 +42,18 @@ public sealed class NoteStore : IAsyncDisposable
         string databasePath,
         CancellationToken cancellationToken = default
     ) => OpenCoreAsync(databasePath, failureInjector: null, cancellationToken);
+
+    /// <summary>Opens a validated existing Notes database without creating a missing source.</summary>
+    public static Task<NoteStore> OpenExistingAsync(
+        string databasePath,
+        CancellationToken cancellationToken = default
+    ) =>
+        OpenCoreAsync(
+            databasePath,
+            failureInjector: null,
+            cancellationToken,
+            requireExisting: true
+        );
 
     internal static Task<NoteStore> OpenAsync(
         string databasePath,
@@ -413,11 +431,12 @@ public sealed class NoteStore : IAsyncDisposable
     private static async Task<NoteStore> OpenCoreAsync(
         string databasePath,
         IStorageFailureInjector? failureInjector,
-        CancellationToken cancellationToken
+        CancellationToken cancellationToken,
+        bool requireExisting = false
     )
     {
         cancellationToken.ThrowIfCancellationRequested();
-        var store = new NoteStore(databasePath, failureInjector);
+        var store = new NoteStore(databasePath, failureInjector, requireExisting);
         try
         {
             return await store._initialized.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
@@ -470,7 +489,7 @@ public sealed class NoteStore : IAsyncDisposable
             );
         }
 
-        ValidateSupportedRestoreSource(sourceConnection, source);
+        ValidateSupportedSource(sourceConnection, source);
         cancellationToken.ThrowIfCancellationRequested();
         CreateDestinationDirectory(destination);
         EnsureNewRestoreDestination(destination);
@@ -624,9 +643,28 @@ public sealed class NoteStore : IAsyncDisposable
     {
         try
         {
-            CreateDestinationDirectory(_databasePath);
-            using var connection = new SqliteConnection(CreateConnectionString(_databasePath));
+            if (_requireExisting)
+            {
+                ValidateExistingSourcePath(_databasePath);
+                using var source = new SqliteConnection(
+                    CreateReadOnlyConnectionString(_databasePath)
+                );
+                source.Open();
+                ValidateSupportedSource(source, _databasePath);
+            }
+            else
+            {
+                CreateDestinationDirectory(_databasePath);
+            }
+            using var connection = new SqliteConnection(
+                CreateConnectionString(
+                    _databasePath,
+                    _requireExisting ? SqliteOpenMode.ReadWrite : SqliteOpenMode.ReadWriteCreate
+                )
+            );
             connection.Open();
+            if (_requireExisting)
+                ValidateSupportedSource(connection, _databasePath);
             InitializeSchema(connection);
 
             lock (_gate)
@@ -1166,10 +1204,7 @@ public sealed class NoteStore : IAsyncDisposable
         }
     }
 
-    private static void ValidateSupportedRestoreSource(
-        SqliteConnection connection,
-        string databasePath
-    )
+    private static void ValidateSupportedSource(SqliteConnection connection, string databasePath)
     {
         try
         {
@@ -1344,11 +1379,14 @@ public sealed class NoteStore : IAsyncDisposable
         File.Delete(databasePath + "-shm");
     }
 
-    private static string CreateConnectionString(string path) =>
+    private static string CreateConnectionString(
+        string path,
+        SqliteOpenMode mode = SqliteOpenMode.ReadWriteCreate
+    ) =>
         new SqliteConnectionStringBuilder
         {
             DataSource = path,
-            Mode = SqliteOpenMode.ReadWriteCreate,
+            Mode = mode,
             Cache = SqliteCacheMode.Private,
             Pooling = false,
         }.ToString();

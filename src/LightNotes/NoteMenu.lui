@@ -8,19 +8,19 @@ style NoteMenuStyle {
 
 public component NoteMenu(NoteWorkspace model, NoteRecord note) {
     <Menu style={NoteMenuStyle}>
-        <MenuItem onInvoke={() => model.Open(note.Id)} enabled={() => model.CanEdit}>
+        <MenuItem onInvoke={() => model.Open(note.Id)} enabled={() => model.CanRunCommands}>
             Open note
         </MenuItem>
         <MenuItem
             onInvoke={() => model.OpenRecordLink(note.Id)}
-            enabled={() => model.CanEdit && model.CanOpenRecordLink(note.Id)}
+            enabled={() => model.CanRunCommands && model.CanOpenRecordLink(note.Id)}
         >
             Open web address
         </MenuItem>
         <MenuSeparator />
         <MenuItem
             onInvoke={() => model.SetArchived(note.Id, !note.IsArchived)}
-            enabled={() => model.CanEdit}
+            enabled={() => model.CanRunCommands}
         >
             {note.IsArchived ? "Restore to Inbox" : "Archive"}
         </MenuItem>

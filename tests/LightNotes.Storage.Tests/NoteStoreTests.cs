@@ -104,7 +104,9 @@ public sealed class NoteStoreTests
     }
 
     [TestMethod]
-    public async Task VersionOneDatabaseMigratesWithoutLosingNotes()
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task VersionOneDatabaseMigratesWithoutLosingNotes(bool requireExisting)
     {
         using var temp = new TempDirectory();
         var id = Guid.NewGuid();
@@ -124,7 +126,13 @@ public sealed class NoteStoreTests
             command.ExecuteNonQuery();
         }
 
-        await using (var migrated = await NoteStore.OpenAsync(temp.DatabasePath))
+        await using (
+            var migrated = await (
+                requireExisting
+                    ? NoteStore.OpenExistingAsync(temp.DatabasePath)
+                    : NoteStore.OpenAsync(temp.DatabasePath)
+            )
+        )
         {
             Assert.AreEqual("Before migration", (await migrated.GetAsync(id))?.Title);
             Assert.AreEqual(0, (await migrated.ListRecoveryDraftsAsync()).Count);
@@ -668,6 +676,65 @@ public sealed class NoteStoreTests
 
         var pattern = Path.GetFileName(destinationPath) + ".*.restore.tmp*";
         Assert.AreEqual(0, Directory.GetFiles(directory, pattern).Length);
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task ExistingOpenRejectsMissingSourceWithoutCreatingDirectoryOrDatabase(
+        bool directoryExists
+    )
+    {
+        using var temp = new TempDirectory();
+        var sourceDirectory = Path.Combine(temp.Path, "source");
+        if (directoryExists)
+            Directory.CreateDirectory(sourceDirectory);
+        await AssertThrowsAsync<FileNotFoundException>(() =>
+            NoteStore.OpenExistingAsync(Path.Combine(sourceDirectory, "notes.db"))
+        );
+        Assert.AreEqual(directoryExists, Directory.Exists(sourceDirectory));
+        CollectionAssert.AreEqual(
+            Array.Empty<string>(),
+            Directory.GetFiles(temp.Path, "*", SearchOption.AllDirectories)
+        );
+    }
+
+    [TestMethod]
+    [DataRow("empty")]
+    [DataRow("unrelated")]
+    [DataRow("missing-table")]
+    [DataRow("corrupt")]
+    public async Task ExistingOpenValidatesSourceBeforeChangingIt(string sourceKind)
+    {
+        using var temp = new TempDirectory();
+        if (sourceKind == "empty")
+            await File.WriteAllBytesAsync(temp.DatabasePath, []);
+        else if (sourceKind == "corrupt")
+            await File.WriteAllTextAsync(temp.DatabasePath, "This is not a Notes database.");
+        else
+        {
+            using var connection = new SqliteConnection(
+                $"Data Source={temp.DatabasePath};Pooling=False"
+            );
+            connection.Open();
+            using var command = connection.CreateCommand();
+            command.CommandText =
+                sourceKind == "unrelated"
+                    ? "CREATE TABLE unrelated (value TEXT);"
+                    : "PRAGMA user_version = 1;";
+            command.ExecuteNonQuery();
+        }
+        var original = await File.ReadAllBytesAsync(temp.DatabasePath);
+        var error = await AssertThrowsAsync<Exception>(async () =>
+        {
+            await using var unexpected = await NoteStore.OpenExistingAsync(temp.DatabasePath);
+        });
+        if (sourceKind is "empty" or "unrelated")
+            Assert.IsInstanceOfType<UnsupportedSchemaVersionException>(error);
+        else
+            Assert.IsInstanceOfType<InvalidDataException>(error);
+        CollectionAssert.AreEqual(original, await File.ReadAllBytesAsync(temp.DatabasePath));
+        CollectionAssert.AreEqual(new[] { temp.DatabasePath }, Directory.GetFiles(temp.Path));
     }
 
     private static async Task<TException> AssertThrowsAsync<TException>(Func<Task> action)
