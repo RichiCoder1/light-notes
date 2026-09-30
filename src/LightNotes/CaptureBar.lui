@@ -22,6 +22,7 @@ style CaptureFieldStyle {
     Padding: Insets.Symmetric(11, 7);
     Background: LightNotesTheme.Field;
     TextColor: LightNotesTheme.Ink;
+    PlaceholderTextColor: LightNotesTheme.MutedInk;
     MainGrow: 1;
     Border: LightNotesTheme.FieldOutline;
     when FocusVisible {
@@ -83,8 +84,8 @@ public component CaptureBar(NoteWorkspace model) {
         </Layout>
         <Button
             leadingIcon={Lucent.Icons.Lucide.LucideIcons.Plus}
-            onInvoke={() => model.CaptureCommand.TryExecute()}
-            style={PrimaryActionStyle with { Enabled: model.CaptureCommand.IsEnabled; }}
+            command={model.CaptureCommand}
+            style={PrimaryActionStyle}
             name="notes.capture-action"
         >
             Add

@@ -84,6 +84,7 @@ style TitleFieldStyle {
     Padding: Insets.Symmetric(10, 9);
     Background: LightNotesTheme.Field;
     TextColor: LightNotesTheme.Ink;
+    PlaceholderTextColor: LightNotesTheme.MutedInk;
     FontSize: 22;
     Border: LightNotesTheme.FieldOutline;
     when FocusVisible {
@@ -99,12 +100,14 @@ style TitleFieldStyle {
 style BodyFieldStyle {
     CornerRadius: 6;
     Height: 160;
+    MinHeight: 0;
     MinWidth: 0;
     MainGrow: 1;
     MainShrink: 1;
     Padding: Insets.Symmetric(14, 14);
     Background: LightNotesTheme.Field;
     TextColor: LightNotesTheme.Ink;
+    PlaceholderTextColor: LightNotesTheme.MutedInk;
     FontSize: 15;
     TextWrap: TextWrap.WordWithGraphemeFallback;
     Clip: true;
@@ -132,6 +135,25 @@ style FieldLabelStyle {
     FontSize: 12;
     TextColor: LightNotesTheme.MutedInk;
     Height: 18;
+}
+
+style FieldHelpStyle {
+    FontSize: 12;
+    TextColor: LightNotesTheme.MutedInk;
+}
+
+style FieldErrorStyle {
+    FontSize: 12;
+    TextColor: LightNotesTheme.ErrorInk;
+}
+
+style BodyFieldGroupStyle {
+    MinWidth: 0;
+    MinHeight: 0;
+    MainGrow: 1;
+    MainShrink: 1;
+    CrossAlignment: LayoutAlignment.Stretch;
+    Spacing: 10;
 }
 
 style UrlFieldGroupStyle {
@@ -244,7 +266,7 @@ public component EditorPane(NoteWorkspace model) {
             >
                 <Button
                     leadingIcon={Lucent.Icons.Lucide.LucideIcons.ArrowLeft}
-                    onInvoke={() => model.BackToCollection()}
+                    command={model.BackToCollectionCommand}
                     style={BackActionStyle}
                     name="notes.back"
                 >
@@ -267,14 +289,20 @@ public component EditorPane(NoteWorkspace model) {
                 label="Web address"
                 editor={field => UrlFieldEditor(field, model, QuietActionStyle)}
                 style={UrlFieldGroupStyle}
+                labelStyle={FieldLabelStyle}
+                helpStyle={FieldHelpStyle}
+                errorStyle={FieldErrorStyle}
                 name="notes.url-field"
             />
-            <Text style={FieldLabelStyle}>Notes</Text>
-            <TextArea
-                session={model.Body}
+            <Field
                 label="Notes"
-                style={BodyFieldStyle with { Enabled: model.CanEdit; }}
-                name="notes.body"
+                fieldId="notes.body"
+                editor={field => BodyFieldEditor(field, model, BodyFieldStyle)}
+                style={BodyFieldGroupStyle}
+                labelStyle={FieldLabelStyle}
+                helpStyle={FieldHelpStyle}
+                errorStyle={FieldErrorStyle}
+                name="notes.body-field"
             />
             if (model.HasError) {
                 <Layout style={ErrorStripStyle} name="notes.editor-error">
@@ -290,8 +318,8 @@ public component EditorPane(NoteWorkspace model) {
                     />
                     <Button
                         leadingIcon={Lucent.Icons.Lucide.LucideIcons.RefreshCw}
-                        onInvoke={() => model.RetryCommand.TryExecute()}
-                        style={QuietActionStyle with { Enabled: model.RetryCommand.IsEnabled; }}
+                        command={model.RetryCommand}
+                        style={QuietActionStyle}
                         name="notes.editor-retry"
                     >
                         Retry
@@ -317,28 +345,21 @@ public component EditorPane(NoteWorkspace model) {
                 if (model.HasValidationError && model.HasRecoveryDraft) {
                     <Button
                         leadingIcon={Lucent.Icons.Lucide.LucideIcons.Trash}
-                        onInvoke={() => model.DiscardDraftCommand.TryExecute()}
-                        style={QuietActionStyle with {
-                            Enabled: model.DiscardDraftCommand.IsEnabled;
-                        }}
+                        command={model.DiscardDraftCommand}
+                        style={QuietActionStyle}
                         name="notes.discard-draft"
                     >
                         Discard draft
                     </Button>
                 } else {
-                    <Button
-                        onInvoke={() => model.SaveCommand.TryExecute()}
-                        style={QuietActionStyle with { Enabled: model.SaveCommand.IsEnabled; }}
-                        name="notes.save"
-                    >
+                    <Button command={model.SaveCommand} style={QuietActionStyle} name="notes.save">
                         Save now
                     </Button>
                 }
                 <Button
                     leadingIcon={Lucent.Icons.Lucide.LucideIcons.Archive}
-                    onInvoke={() => model.ArchiveCommand.TryExecute()}
+                    command={model.ArchiveCommand}
                     style={QuietActionStyle with {
-                        Enabled: model.ArchiveCommand.IsEnabled;
                         Participation: model.ShowArchived.Value
                             ? ElementParticipation.Visible
                             : ElementParticipation.Collapsed;
@@ -349,9 +370,8 @@ public component EditorPane(NoteWorkspace model) {
                 </Button>
                 <Button
                     leadingIcon={Lucent.Icons.Lucide.LucideIcons.Archive}
-                    onInvoke={() => model.ArchiveCommand.TryExecute()}
+                    command={model.ArchiveCommand}
                     style={QuietActionStyle with {
-                        Enabled: model.ArchiveCommand.IsEnabled;
                         Participation: !model.ShowArchived.Value
                             ? ElementParticipation.Visible
                             : ElementParticipation.Collapsed;
@@ -360,11 +380,7 @@ public component EditorPane(NoteWorkspace model) {
                 >
                     Archive
                 </Button>
-                <Button
-                    onInvoke={() => model.BackupCommand.TryExecute()}
-                    style={QuietActionStyle with { Enabled: model.BackupCommand.IsEnabled; }}
-                    name="notes.backup"
-                >
+                <Button command={model.BackupCommand} style={QuietActionStyle} name="notes.backup">
                     Backup
                 </Button>
             </Layout>

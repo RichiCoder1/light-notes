@@ -14,7 +14,8 @@ style UrlFieldStyle {
     MainShrink: 1;
     Padding: Insets.Symmetric(10, 7);
     Background: LightNotesTheme.Field;
-    TextColor: LightNotesTheme.MutedInk;
+    TextColor: LightNotesTheme.Ink;
+    PlaceholderTextColor: LightNotesTheme.MutedInk;
     FontSize: 13;
     Border: LightNotesTheme.FieldOutline;
     when FocusVisible {
@@ -45,13 +46,14 @@ internal component UrlFieldEditor(
         <TextField
             field={field}
             session={model.Url}
-            style={UrlFieldStyle with { Enabled: model.CanEdit; }}
+            enabled={model.CanEdit}
+            style={UrlFieldStyle}
             name="notes.url"
         />
         <Button
             leadingIcon={Lucent.Icons.Lucide.LucideIcons.ArrowRight}
-            onInvoke={() => model.OpenLinkCommand.TryExecute()}
-            style={actionStyle with { Enabled: model.OpenLinkCommand.IsEnabled; }}
+            command={model.OpenLinkCommand}
+            style={actionStyle}
             name="notes.open-link"
         >
             Open

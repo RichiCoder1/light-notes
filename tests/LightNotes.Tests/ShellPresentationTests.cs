@@ -1038,13 +1038,24 @@ public sealed partial class ShellPresentationTests
             new(PointerCommandKind.Cancel, pointer, addBounds.X, addBounds.Y)
         );
 
+        using var canceledScene = Scenario(
+            fixture,
+            composition,
+            renderer,
+            model,
+            "interaction-canceled",
+            1180,
+            760,
+            1,
+            export: false
+        );
         var selectedItem = model.Selected.Value!;
         var selectedRow = Semantic(
             composition,
             NotePresentation.RowLabel(selectedItem),
             SemanticRole.ListItem
         );
-        var selectedBounds = Bounds(defaultScene, selectedRow);
+        var selectedBounds = Bounds(canceledScene, selectedRow);
         var selectedDown = composition.Input.DispatchPointer(
             new(
                 PointerCommandKind.Down,
@@ -1056,7 +1067,7 @@ public sealed partial class ShellPresentationTests
         );
         Assert.IsTrue(
             selectedDown.Handled,
-            "The selected note row did not accept a primary press."
+            $"The selected note row did not accept a primary press: {selectedDown.Status}/{selectedDown.Rejection}, target={selectedDown.Target}, prior={selectedBounds}, current={Bounds(canceledScene, selectedRow)}."
         );
         var selectedPressedScene = Scenario(
             fixture,
@@ -1307,6 +1318,24 @@ public sealed partial class ShellPresentationTests
             using var data = image.Encode(SKEncodedImageFormat.Png, 100);
             using var stream = File.Create(Path.Combine(directory, name + ".png"));
             data.SaveTo(stream);
+            File.WriteAllText(
+                Path.Combine(directory, name + ".layout.json"),
+                System.Text.Json.JsonSerializer.Serialize(
+                    new
+                    {
+                        structure = composition.Dump(),
+                        scene.Boxes,
+                        scene.Input,
+                        semantics = Descendants(composition.SemanticSnapshot())
+                            .Select(node => new
+                            {
+                                node.Identity,
+                                node.Name,
+                                node.Role,
+                            }),
+                    }
+                )
+            );
         }
         return scene;
     }
@@ -1624,7 +1653,7 @@ public sealed partial class ShellPresentationTests
             );
             Assert.IsTrue(
                 bounds.Y + bounds.Height <= height + 1f,
-                $"{element.Name} extends past the minimum viewport height."
+                $"{element.Name} extends past the minimum viewport height: {bounds}, viewport height={height}."
             );
         }
     }

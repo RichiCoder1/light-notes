@@ -1,0 +1,11 @@
+namespace LightNotes;
+
+internal component BodyFieldEditor(FieldContext field, NoteWorkspace model, Style? style = null) {
+    <TextArea
+        field={field}
+        session={model.Body}
+        enabled={model.CanEdit}
+        style={style}
+        name="notes.body"
+    />
+}

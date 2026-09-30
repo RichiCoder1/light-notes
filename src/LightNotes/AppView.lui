@@ -8,6 +8,7 @@ style ShellStyle {
     FontFamily: "Segoe UI";
     FontSize: 14;
     MainGrow: 1;
+    MainShrink: 1;
     MinWidth: 0;
     MinHeight: 0;
     Clip: true;
@@ -17,6 +18,7 @@ style WorkspaceStyle {
     Axis: LayoutAxis.Row;
     CrossAlignment: LayoutAlignment.Stretch;
     MainGrow: 1;
+    MainShrink: 1;
     MinWidth: 0;
     MinHeight: 0;
     Clip: true;

@@ -67,6 +67,12 @@ Use the review to prioritize the next chunk. Do not grow #80 into a component re
 
 The maintained desktop suite covers capture/autosave/reopen, invalid-draft recovery and discard, responsive focus, targeted Axe.Windows scans, native cursor/caret behavior, and long-note scrolling with repeated Archive/Restore. Current source/package identities and results live in the linked GitHub issues. Renderer captures, targeted automated scans, and native input tests each establish different behavior; none claims a broad manual appearance, screen-reader, DPI or Accessibility Insights walkthrough.
 
+## Lucent 101.1 consumer checkpoint
+
+On September 30, 2026, the app adopted matching Lucent runtime and `.lui` SDK pins at `0.3.0-dev.101.1`. All six maintained lockfiles were refreshed and passed locked restore. The Release build, authored C# and `.lui` formatting checks, and NativeAOT publish passed; managed app/storage suites passed 102 tests, with three optional performance probes skipped. All seven consumed Lucent package archives matched fresh authenticated GitHub feed downloads byte for byte.
+
+The unchanged responsive regression passed at 480 × 520 logical pixels, including the long-URL case at 150% scale. Save now, Archive and Backup end at 501.33 pixels, inside the minimum viewport. The published native app was also resized to a 480 × 520 client area: the back action, title, address, scrolling body and footer commands remained visible. Typing and Ctrl+S retained body focus, displayed Saved, and an independent export after normal close confirmed the text persisted. No stderr output or crash report was produced. The input adapter did not move the caret with Ctrl+End; this checkpoint makes no End-key transport claim or broad accessibility certification.
+
 ## Interaction feedback follow-up
 
 The owner review opened [Lucent #91–#94](https://github.com/RichiCoder1/lucent/issues/91): long-note responsiveness and the reported Archive exit, readable hover/press states and alignment, native caret/cursor behavior, and default themeable scrollbars. Lucent owns routing, layout, shaping, scrollbar geometry and Windows caret/cursor transport; Light Notes supplies warm application styles and collection/search policy.

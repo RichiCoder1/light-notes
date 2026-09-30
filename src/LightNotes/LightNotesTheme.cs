@@ -77,7 +77,7 @@ internal static class LightNotesTheme
     internal static readonly Token<Color> Ink = new("light-notes-ink", Color.Parse("#202A34"));
     internal static readonly Token<Color> MutedInk = new(
         "light-notes-muted-ink",
-        Color.Parse("#66727A")
+        Color.Parse("#5C6870")
     );
     internal static readonly Token<Color> InverseInk = new(
         "light-notes-inverse-ink",

@@ -5,7 +5,7 @@ using Lucent.Core;
 namespace LightNotes.Tests;
 
 [TestClass]
-public sealed class WorkspaceTests
+public sealed partial class WorkspaceTests
 {
     [TestMethod]
     public void CaptureSaveArchiveAndClosePersistAcrossWorkspaceRestart()
